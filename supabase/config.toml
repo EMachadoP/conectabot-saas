@@ -1,0 +1,61 @@
+project_id = "qoolzhzdcfnyblymdvbq"
+
+[functions.zapi-webhook]
+verify_jwt = false
+
+[functions.zapi-send-message]
+verify_jwt = false
+
+[functions.zapi-sync-contacts]
+verify_jwt = true
+
+[functions.zapi-send-file]
+verify_jwt = true
+
+[functions.zapi-sync-history]
+verify_jwt = false
+
+[functions.create-agent]
+verify_jwt = false
+
+[functions.ai-generate-reply]
+verify_jwt = false
+
+[functions.ai-maybe-reply]
+verify_jwt = false
+
+[functions.ai-test]
+verify_jwt = false
+
+[functions.kb-generate-embedding]
+verify_jwt = true
+
+[functions.kb-daily-ingest]
+verify_jwt = true
+
+[functions.notify-open-tickets-group]
+verify_jwt = true
+
+[functions.zapi-fix-group-duplicates]
+verify_jwt = true
+
+[functions.protocol-opened]
+verify_jwt = false
+
+[functions.group-resolution-handler]
+verify_jwt = false
+
+[functions.assign-conversation]
+verify_jwt = false
+
+[functions.ai-auto-reactivate]
+verify_jwt = false
+
+[functions.transcribe-audio]
+verify_jwt = false
+
+[functions.create-protocol]
+verify_jwt = false
+
+[functions.create-ticket]
+verify_jwt = false
