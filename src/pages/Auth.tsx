@@ -148,7 +148,7 @@ export default function AuthPage() {
           <div className="mx-auto mb-6 w-32 h-32">
             <img src={logo} alt="G7" className="w-full h-full object-contain" />
           </div>
-          <CardTitle className="text-2xl">G7 Client Connector</CardTitle>
+          <CardTitle className="text-2xl">Conectabot SaaS (NOVO)</CardTitle>
           <CardDescription>
             Plataforma de atendimento WhatsApp
           </CardDescription>

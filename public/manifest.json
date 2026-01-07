@@ -1,6 +1,6 @@
 {
-  "name": "G7 Client Connector",
-  "short_name": "G7 Chat",
+  "name": "Conectabot SaaS (NOVO)",
+  "short_name": "Conectabot",
   "description": "WhatsApp Chat Hub - Gerencie conversas do WhatsApp",
   "start_url": "/inbox",
   "display": "standalone",

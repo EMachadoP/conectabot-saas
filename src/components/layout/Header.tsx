@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MessageSquare, BarChart3, Settings, LogOut, Bot, Contact, Link2, User, Share2 } from 'lucide-react';
+import { MessageSquare, BarChart3, Settings, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -7,11 +7,14 @@ import { useProfile } from '@/hooks/useProfile';
 import { useUserRole } from '@/hooks/useUserRole';
 import { cn } from '@/lib/utils';
 import { EditProfileModal } from '@/components/profile/EditProfileModal';
+import { PRODUCT } from '@/config/product';
 import logo from '@/assets/logo.png';
 
 const navItems = [
   { path: '/inbox', label: 'Conversas', icon: MessageSquare },
   { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
+  { path: '/calendar', label: 'Agenda', icon: Calendar, featureFlag: 'enableCalendar' as const },
+  { path: '/sac', label: 'SAC', icon: Ticket, featureFlag: 'enableProtocols' as const },
   { path: '/admin', label: 'Admin', icon: Settings, adminOnly: true },
   { path: '/admin/ai', label: 'IA', icon: Bot, adminOnly: true },
   { path: '/admin/zapi', label: 'Z-API', icon: Share2, adminOnly: true },
@@ -26,7 +29,13 @@ export function Header() {
   const { isAdmin } = useUserRole();
   const [showProfileModal, setShowProfileModal] = useState(false);
 
-  const visibleNavItems = navItems.filter(item => !item.adminOnly || isAdmin);
+  const visibleNavItems = navItems.filter(item => {
+    // Filter by admin permission
+    if (item.adminOnly && !isAdmin) return false;
+    // Filter by feature flag
+    if (item.featureFlag && !PRODUCT.flags[item.featureFlag]) return false;
+    return true;
+  });
 
   return (
     <>
@@ -36,14 +45,14 @@ export function Header() {
             <div className="w-10 h-10">
               <img src={logo} alt="G7" className="w-full h-full object-contain" />
             </div>
-            <span className="font-semibold text-foreground">G7 Client Connector</span>
+            <span className="font-semibold text-foreground">Conectabot SaaS (NOVO)</span>
           </Link>
 
           <nav className="flex items-center gap-1">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname.startsWith(item.path);
-              
+
               return (
                 <Link key={item.path} to={item.path}>
                   <Button

@@ -1,7 +1,8 @@
-import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal } from 'lucide-react';
+import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Ticket } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
 import { cn } from '@/lib/utils';
+import { PRODUCT } from '@/config/product';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +13,8 @@ import {
 const navItems = [
   { path: '/inbox', label: 'Conversas', icon: MessageSquare },
   { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
+  { path: '/calendar', label: 'Agenda', icon: Calendar, featureFlag: 'enableCalendar' as const },
+  { path: '/sac', label: 'SAC', icon: Ticket, featureFlag: 'enableProtocols' as const },
 ];
 
 const adminItems = [
@@ -33,21 +36,23 @@ export function MobileBottomNav() {
   return (
     <nav className="bottom-nav">
       <div className="flex items-center justify-around h-14">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = isActive(item.path);
+        {navItems
+          .filter(item => !item.featureFlag || PRODUCT.flags[item.featureFlag])
+          .map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.path);
 
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={cn('bottom-nav-item flex-1', active && 'active')}
-            >
-              <Icon className="w-5 h-5" />
-              <span className="text-xs mt-1">{item.label}</span>
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={cn('bottom-nav-item flex-1', active && 'active')}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="text-xs mt-1">{item.label}</span>
+              </Link>
+            );
+          })}
 
         {isAdmin && (
           <DropdownMenu>

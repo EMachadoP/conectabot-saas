@@ -26,8 +26,8 @@ export default function StatusPage() {
 
     // Check internet
     const internetOk = navigator.onLine;
-    setChecks(prev => prev.map(c => 
-      c.name === 'Conexão com Internet' 
+    setChecks(prev => prev.map(c =>
+      c.name === 'Conexão com Internet'
         ? { ...c, status: internetOk ? 'ok' : 'error', message: internetOk ? 'Online' : 'Offline' }
         : c
     ));
@@ -35,14 +35,14 @@ export default function StatusPage() {
     // Check Supabase DB
     try {
       const { error } = await supabase.from('profiles').select('id').limit(1);
-      setChecks(prev => prev.map(c => 
-        c.name === 'Banco de Dados' 
+      setChecks(prev => prev.map(c =>
+        c.name === 'Banco de Dados'
           ? { ...c, status: error ? 'error' : 'ok', message: error?.message || 'Conectado' }
           : c
       ));
     } catch (e) {
-      setChecks(prev => prev.map(c => 
-        c.name === 'Banco de Dados' 
+      setChecks(prev => prev.map(c =>
+        c.name === 'Banco de Dados'
           ? { ...c, status: 'error', message: 'Falha na conexão' }
           : c
       ));
@@ -55,14 +55,14 @@ export default function StatusPage() {
         body: { message: 'ping' },
       });
       const latency = Date.now() - start;
-      setChecks(prev => prev.map(c => 
-        c.name === 'Edge Functions' 
+      setChecks(prev => prev.map(c =>
+        c.name === 'Edge Functions'
           ? { ...c, status: error ? 'error' : 'ok', message: error?.message || `OK (${latency}ms)` }
           : c
       ));
     } catch (e) {
-      setChecks(prev => prev.map(c => 
-        c.name === 'Edge Functions' 
+      setChecks(prev => prev.map(c =>
+        c.name === 'Edge Functions'
           ? { ...c, status: 'error', message: 'Indisponível' }
           : c
       ));
@@ -81,7 +81,7 @@ export default function StatusPage() {
       <div className="p-6 max-w-lg mx-auto space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold">Status do Sistema</h1>
-          <p className="text-muted-foreground">G7 Client Connector v{APP_VERSION}</p>
+          <p className="text-muted-foreground">Conectabot SaaS (NOVO) v{APP_VERSION}</p>
         </div>
 
         <Card>
