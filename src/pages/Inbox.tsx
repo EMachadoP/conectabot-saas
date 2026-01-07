@@ -103,7 +103,7 @@ export default function InboxPage() {
       if (!token) throw new Error("Sessão perdida. Faça login novamente.");
 
       // Chamada direta via Fetch para debug de rede
-      const response = await fetch('https://qoolzhzdcfnyblymdvbq.supabase.co/functions/v1/zapi-send-message', {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zapi-send-message`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
