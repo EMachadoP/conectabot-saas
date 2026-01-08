@@ -15,6 +15,29 @@ function normalizeBaseUrl(baseUrl: string) {
     return baseUrl.replace(/\/+$/, "");
 }
 
+const ALLOWED_ORIGINS = [
+    "https://conectabot-saas.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+];
+
+function corsResponse(body: unknown, origin: string | null, status = 200) {
+    const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+    };
+
+    const allowed = origin && ALLOWED_ORIGINS.includes(origin);
+    if (allowed) {
+        headers["Access-Control-Allow-Origin"] = origin;
+        headers["Vary"] = "Origin";
+    }
+
+    headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "authorization, x-client-info, apikey, content-type";
+
+    return new Response(JSON.stringify(body), { status, headers });
+}
+
 async function trySessionAction(
     baseUrl: string,
     apiKey: string,
@@ -23,7 +46,7 @@ async function trySessionAction(
 ) {
     const headers = { "Content-Type": "application/json", "apikey": apiKey };
 
-    const candidates: Array<{ method: "GET" | "POST" | "DELETE"; url: string; body?: any }> = [];
+    const candidates: Array<{ method: "GET" | "POST" | "DELETE" | "PUT"; url: string; body?: any }> = [];
 
     if (action === "disconnect") {
         candidates.push(
@@ -75,17 +98,24 @@ async function trySessionAction(
 }
 
 serve(async (req) => {
+    const origin = req.headers.get("Origin");
+
+    // Preflight
+    if (req.method === "OPTIONS") {
+        return corsResponse({}, origin, 200);
+    }
+
     try {
         const body = await req.json().catch(() => ({}));
         const team_id = body.team_id as string | undefined;
         const action = body.action as "disconnect" | "restart" | undefined;
 
         if (!team_id) {
-            return new Response(JSON.stringify({ ok: false, error: "Missing team_id" }), { status: 400 });
+            return corsResponse({ ok: false, error: "Missing team_id" }, origin, 400);
         }
 
         if (!action || !["disconnect", "restart"].includes(action)) {
-            return new Response(JSON.stringify({ ok: false, error: "Invalid action" }), { status: 400 });
+            return corsResponse({ ok: false, error: "Invalid action" }, origin, 400);
         }
 
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -101,7 +131,7 @@ serve(async (req) => {
         if (instErr) throw instErr;
 
         if (!inst || !inst.evolution_base_url || !inst.evolution_api_key || !inst.evolution_instance_key) {
-            return new Response(JSON.stringify({ ok: false, error: "NOT_CONFIGURED" }), { status: 400 });
+            return corsResponse({ ok: false, error: "NOT_CONFIGURED" }, origin, 400);
         }
 
         const baseUrl = normalizeBaseUrl(inst.evolution_base_url);
@@ -112,11 +142,11 @@ serve(async (req) => {
                 last_error: JSON.stringify(result.error),
             }).eq("id", inst.id);
 
-            return new Response(JSON.stringify({
+            return corsResponse({
                 ok: false,
                 error: `${action.toUpperCase()}_FAILED`,
                 details: result.error
-            }), { status: 502 });
+            }, origin, 502);
         }
 
         // Update status based on action
@@ -129,18 +159,19 @@ serve(async (req) => {
             last_error: null,
         }).eq("id", inst.id);
 
-        return new Response(JSON.stringify({
+        return corsResponse({
             ok: true,
             action,
             team_id,
             instance_key: inst.evolution_instance_key,
             response: result.response,
-        }), { headers: { "Content-Type": "application/json" } });
+        }, origin, 200);
 
     } catch (e) {
-        return new Response(JSON.stringify({
+        console.error("evolution-session error", e);
+        return corsResponse({
             ok: false,
             error: (e as Error).message ?? String(e)
-        }), { status: 500 });
+        }, origin, 500);
     }
 });

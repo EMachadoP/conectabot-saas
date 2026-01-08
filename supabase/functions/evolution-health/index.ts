@@ -23,12 +23,42 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms = 6000) {
     }
 }
 
+const ALLOWED_ORIGINS = [
+    "https://conectabot-saas.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+];
+
+function corsResponse(body: unknown, origin: string | null, status = 200) {
+    const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+    };
+
+    const allowed = origin && ALLOWED_ORIGINS.includes(origin);
+    if (allowed) {
+        headers["Access-Control-Allow-Origin"] = origin;
+        headers["Vary"] = "Origin";
+    }
+
+    headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "authorization, x-client-info, apikey, content-type";
+
+    return new Response(JSON.stringify(body), { status, headers });
+}
+
 serve(async (req) => {
+    const origin = req.headers.get("Origin");
+
+    // Preflight
+    if (req.method === "OPTIONS") {
+        return corsResponse({}, origin, 200);
+    }
+
     try {
         const body = await req.json().catch(() => ({}));
         const team_id = body.team_id as string | undefined;
         if (!team_id) {
-            return new Response(JSON.stringify({ ok: false, error: "Missing team_id" }), { status: 400 });
+            return corsResponse({ ok: false, error: "Missing team_id" }, origin, 400);
         }
 
         // Service role (server-side only)
@@ -58,7 +88,7 @@ serve(async (req) => {
         const configured = !!(inst.evolution_base_url && inst.evolution_api_key && inst.evolution_instance_key);
 
         if (!configured) {
-            return new Response(JSON.stringify({
+            return corsResponse({
                 ok: true,
                 team_id,
                 provider: "evolution",
@@ -68,7 +98,7 @@ serve(async (req) => {
                 instance: { configured: false, key: inst?.evolution_instance_key ?? null, status: "NOT_CONFIGURED", details: null },
                 auth: { valid: false, http_status: null },
                 error: "DADOS_INCOMPLETOS",
-            }), { headers: { "Content-Type": "application/json" } });
+            }, origin, 200);
         }
 
         const baseUrl = inst.evolution_base_url.replace(/\/+$/, ""); // trim trailing /
@@ -139,7 +169,7 @@ serve(async (req) => {
             }
         }
 
-        return new Response(JSON.stringify({
+        return corsResponse({
             ok: true,
             team_id,
             provider: "evolution",
@@ -162,9 +192,10 @@ serve(async (req) => {
                 http_status: authHttp,
             },
             error: null,
-        }), { headers: { "Content-Type": "application/json" } });
+        }, origin, 200);
 
     } catch (e) {
-        return new Response(JSON.stringify({ ok: false, error: (e as Error).message ?? String(e) }), { status: 500 });
+        console.error("evolution-health error", e);
+        return corsResponse({ ok: false, error: (e as Error).message ?? String(e) }, origin, 500);
     }
 });

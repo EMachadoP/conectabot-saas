@@ -3,10 +3,28 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Redis } from "https://esm.sh/@upstash/redis@1.25.0";
 
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+const ALLOWED_ORIGINS = [
+    "https://conectabot-saas.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+];
+
+function corsResponse(body: unknown, origin: string | null, status = 200) {
+    const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+    };
+
+    const allowed = origin && ALLOWED_ORIGINS.includes(origin);
+    if (allowed) {
+        headers["Access-Control-Allow-Origin"] = origin;
+        headers["Vary"] = "Origin";
+    }
+
+    headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE";
+    headers["Access-Control-Allow-Headers"] = "authorization, x-client-info, apikey, content-type";
+
+    return new Response(JSON.stringify(body), { status, headers });
+}
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -14,8 +32,10 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 serve(async (req) => {
+    const origin = req.headers.get("Origin");
+
     if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders });
+        return corsResponse({}, origin, 200);
     }
 
     try {
@@ -38,20 +58,14 @@ serve(async (req) => {
         // Get team_id from auth
         const authHeader = req.headers.get('Authorization');
         if (!authHeader) {
-            return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), {
-                status: 401,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return corsResponse({ ok: false, error: 'Unauthorized' }, origin, 401);
         }
 
         const token = authHeader.replace('Bearer ', '');
         const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
         if (authError || !user) {
-            return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), {
-                status: 401,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return corsResponse({ ok: false, error: 'Unauthorized' }, origin, 401);
         }
 
         const { data: profile } = await supabase
@@ -62,10 +76,7 @@ serve(async (req) => {
 
         const teamId = profile?.team_id;
         if (!teamId) {
-            return new Response(JSON.stringify({ ok: false, error: 'No team_id found' }), {
-                status: 403,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            return corsResponse({ ok: false, error: 'No team_id found' }, origin, 403);
         }
 
         // LIST DLQ items
@@ -88,13 +99,11 @@ serve(async (req) => {
                 .filter(Boolean)
                 .filter((item: any) => item.payload_original?.team_id === teamId);
 
-            return new Response(JSON.stringify({
+            return corsResponse({
                 ok: true,
                 items: parsedItems,
                 total: parsedItems.length,
-            }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            }, origin, 200);
         }
 
         // REQUEUE single item
@@ -103,19 +112,13 @@ serve(async (req) => {
             const { index } = body;
 
             if (typeof index !== 'number') {
-                return new Response(JSON.stringify({ ok: false, error: 'Invalid index' }), {
-                    status: 400,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return corsResponse({ ok: false, error: 'Invalid index' }, origin, 400);
             }
 
             // Get item from DLQ
             const item = await redis.lindex('reminder:dlq', index);
             if (!item) {
-                return new Response(JSON.stringify({ ok: false, error: 'Item not found' }), {
-                    status: 404,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return corsResponse({ ok: false, error: 'Item not found' }, origin, 404);
             }
 
             const parsed = typeof item === 'string' ? JSON.parse(item) : item;
@@ -123,18 +126,12 @@ serve(async (req) => {
 
             // Validate payload
             if (!payload?.recipient_id || !payload?.reminder_id || !payload?.team_id) {
-                return new Response(JSON.stringify({ ok: false, error: 'Incomplete payload' }), {
-                    status: 400,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return corsResponse({ ok: false, error: 'Incomplete payload' }, origin, 400);
             }
 
             // Security: verify team_id matches
             if (payload.team_id !== teamId) {
-                return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), {
-                    status: 403,
-                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                });
+                return corsResponse({ ok: false, error: 'Unauthorized' }, origin, 403);
             }
 
             // Update recipient status in DB
@@ -156,12 +153,10 @@ serve(async (req) => {
             // For simplicity, we'll just leave it in DLQ (dispatcher will handle duplicates via idempotency)
             // Or implement a cleanup job later.
 
-            return new Response(JSON.stringify({
+            return corsResponse({
                 ok: true,
                 message: 'Item requeued successfully',
-            }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            }, origin, 200);
         }
 
         // REQUEUE ALL (limited)
@@ -212,29 +207,21 @@ serve(async (req) => {
                 requeued++;
             }
 
-            return new Response(JSON.stringify({
+            return corsResponse({
                 ok: true,
                 requeued,
                 skipped,
                 total: parsedItems.length,
-            }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
+            }, origin, 200);
         }
 
-        return new Response(JSON.stringify({ ok: false, error: 'Invalid action' }), {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return corsResponse({ ok: false, error: 'Invalid action' }, origin, 400);
 
     } catch (error: any) {
         console.error('[dlq-manager] Error:', error);
-        return new Response(JSON.stringify({
+        return corsResponse({
             ok: false,
             error: error.message,
-        }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        }, origin, 500);
     }
 });

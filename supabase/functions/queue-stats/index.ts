@@ -15,7 +15,37 @@ async function upstashCommand<T>(cmd: string[], url: string, token: string): Pro
     return json.result;
 }
 
+const ALLOWED_ORIGINS = [
+    "https://conectabot-saas.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+];
+
+function corsResponse(body: unknown, origin: string | null, status = 200) {
+    const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+    };
+
+    const allowed = origin && ALLOWED_ORIGINS.includes(origin);
+    if (allowed) {
+        headers["Access-Control-Allow-Origin"] = origin;
+        headers["Vary"] = "Origin";
+    }
+
+    headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "authorization, x-client-info, apikey, content-type";
+
+    return new Response(JSON.stringify(body), { status, headers });
+}
+
 serve(async (req) => {
+    const origin = req.headers.get("Origin");
+
+    // Preflight
+    if (req.method === "OPTIONS") {
+        return corsResponse({}, origin, 200);
+    }
+
     try {
         // Env vars no Supabase (Edge Function secrets)
         const UPSTASH_REDIS_REST_URL = Deno.env.get("UPSTASH_REDIS_REST_URL") ?? "";
@@ -26,10 +56,7 @@ serve(async (req) => {
         const REMINDER_DLQ_KEY = Deno.env.get("REMINDER_DLQ_KEY") ?? "reminder:dlq";
 
         if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
-            return new Response(
-                JSON.stringify({ ok: false, error: "Missing Upstash env vars" }),
-                { status: 500, headers: { "Content-Type": "application/json" } },
-            );
+            return corsResponse({ ok: false, error: "Missing Upstash env vars" }, origin, 500);
         }
 
         // LLEN em ambas
@@ -38,19 +65,14 @@ serve(async (req) => {
             upstashCommand<number>(["LLEN", REMINDER_DLQ_KEY], UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN),
         ]);
 
-        return new Response(
-            JSON.stringify({
-                ok: true,
-                queueLength,
-                dlqLength,
-                keysUsed: { queue: REMINDER_QUEUE_KEY, dlq: REMINDER_DLQ_KEY },
-            }),
-            { headers: { "Content-Type": "application/json" } },
-        );
+        return corsResponse({
+            ok: true,
+            queueLength,
+            dlqLength,
+            keysUsed: { queue: REMINDER_QUEUE_KEY, dlq: REMINDER_DLQ_KEY },
+        }, origin, 200);
     } catch (e) {
-        return new Response(
-            JSON.stringify({ ok: false, error: (e as Error).message ?? String(e) }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-        );
+        console.error("queue-stats error", e);
+        return corsResponse({ ok: false, error: (e as Error).message ?? String(e) }, origin, 500);
     }
 });
