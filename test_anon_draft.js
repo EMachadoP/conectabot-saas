@@ -1,7 +1,7 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
-const supabaseUrl = 'https://qoolzhzdcfnyblymdvbq.supabase.co';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://rzlrslywbszlffmaglln.supabase.co';
 const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY; // Need anon key
 
 // If we don't have anon key in env, we can't test "frontend-like" access.
@@ -32,14 +32,14 @@ async function check() {
 }
 
 // Actually better to just use curl to the function URL with Anon Key to see if it Connects.
-// URL: https://qoolzhzdcfnyblymdvbq.supabase.co/functions/v1/zapi-send-message
+// URL: https://rzlrslywbszlffmaglln.supabase.co/functions/v1/zapi-send-message
 
 const fetch = require('node-fetch'); // assuming node-fetch is available or using https
 const https = require('https');
 
 function testHttp() {
     const options = {
-        hostname: 'qoolzhzdcfnyblymdvbq.supabase.co',
+        hostname: process.env.VITE_SUPABASE_URL?.replace('https://', '') || 'rzlrslywbszlffmaglln.supabase.co',
         path: '/functions/v1/zapi-send-message',
         method: 'POST',
         headers: {

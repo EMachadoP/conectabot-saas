@@ -10,7 +10,7 @@ export type FeatureFlags = {
 export const PRODUCT = {
     name: "Conectabot SaaS (NOVO)",
     defaultTimezone: "America/Recife",
-    whatsappProvider: "mock" as "mock" | "evolution",
+    whatsappProvider: "evolution" as "mock" | "evolution",
     flags: {
         enableProtocols: true,
         enableCalendar: true,

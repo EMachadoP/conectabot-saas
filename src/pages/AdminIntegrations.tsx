@@ -97,12 +97,14 @@ export default function AdminIntegrationsPage() {
   const [requeueing, setRequeueing] = useState(false);
   const [evolutionHealth, setEvolutionHealth] = useState<any>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [qrCode, setQrCode] = useState<{ type: string; value: string } | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
   const [pollingStatus, setPollingStatus] = useState(false);
   const [sessionAction, setSessionAction] = useState(false);
 
   const fetchData = async () => {
+    if (!activeTenant) return;
     setLoading(true);
     try {
       // Fetch settings
@@ -120,16 +122,18 @@ export default function AdminIntegrationsPage() {
       const { data: agentsData } = await supabase
         .from('agents')
         .select('*')
+        .eq('tenant_id', activeTenant.id)
         .order('name');
 
       if (agentsData) {
         setAgents(agentsData as Agent[]);
       }
 
-      // Fetch Evolution Integration
+      // Fetch Evolution Integration - FILTER BY TENANT
       const { data: evoData } = await supabase
         .from('tenant_integrations')
         .select('*')
+        .eq('tenant_id', activeTenant.id)
         .eq('provider', 'evolution')
         .maybeSingle();
 
@@ -141,7 +145,7 @@ export default function AdminIntegrationsPage() {
       await Promise.all([fetchStats(), fetchErrorLogs(), fetchDlqItems()]);
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao carregar dados' });
+      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao carregar dados do tenant' });
     } finally {
       setLoading(false);
     }
@@ -167,25 +171,13 @@ export default function AdminIntegrationsPage() {
   };
 
   const fetchErrorLogs = async () => {
+    if (!activeTenant) return;
     try {
-      // Get team_id from profile
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('team_id')
-        .eq('id', user.id)
-        .single();
-
-      const teamId = profile?.team_id;
-      if (!teamId) return;
-
-      // Fetch error logs filtered by team_id
+      // Fetch error logs filtered by tenant_id (using activeTenant.id)
       const { data, error } = await supabase
         .from('reminder_attempt_logs')
         .select('*')
-        .eq('tenant_id', teamId) // Using tenant_id as team_id
+        .eq('tenant_id', activeTenant.id)
         .in('result', ['failed', 'retry_scheduled', 'dlq'])
         .order('created_at', { ascending: false })
         .limit(20);
@@ -274,23 +266,11 @@ export default function AdminIntegrationsPage() {
   };
 
   const fetchEvolutionHealth = async () => {
+    if (!activeTenant) return;
     setLoadingHealth(true);
     try {
-      // Get team_id from profile
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('team_id')
-        .eq('id', user.id)
-        .single();
-
-      const teamId = profile?.team_id;
-      if (!teamId) return;
-
       const { data, error } = await supabase.functions.invoke('evolution-health', {
-        body: { team_id: teamId },
+        body: { team_id: activeTenant.id },
       });
 
       if (error) throw error;
@@ -310,10 +290,10 @@ export default function AdminIntegrationsPage() {
   };
 
   useEffect(() => {
-    if (user && isAdmin) {
+    if (user && isAdmin && activeTenant) {
       fetchData();
     }
-  }, [user, isAdmin]);
+  }, [user, isAdmin, activeTenant?.id]);
 
   const handleSaveSettings = async () => {
     if (!settings) return;
@@ -347,7 +327,8 @@ export default function AdminIntegrationsPage() {
     if (!activeTenant) return;
     setSaving(true);
     try {
-      const { error } = await supabase
+      // 1. Save to tenant_integrations (Used by Webhooks)
+      const { error: err1 } = await supabase
         .from('tenant_integrations')
         .upsert({
           tenant_id: activeTenant.id,
@@ -359,11 +340,29 @@ export default function AdminIntegrationsPage() {
           webhook_secret: evoConfig.webhook_secret,
         }, { onConflict: 'tenant_id,provider' });
 
-      if (error) throw error;
-      toast({ title: 'Configuração Evolution salva!' });
+      if (err1) throw err1;
+
+      // 2. Save to wa_instances (Used by Edge Functions & Diagnostics)
+      const { error: err2 } = await supabase
+        .from('wa_instances' as any)
+        .upsert({
+          team_id: activeTenant.id,
+          evolution_instance_key: evoConfig.instance_name,
+          evolution_base_url: evoConfig.base_url,
+          evolution_api_key: evoConfig.api_key,
+          status: evoConfig.is_enabled ? 'disconnected' : 'error' // Reset status if enabled
+        }, { onConflict: 'team_id' });
+
+      if (err2) throw err2;
+
+      toast({ title: 'Configuração Evolution sincronizada!' });
+
+      // Refresh evolution health after saving
+      await fetchEvolutionHealth();
+      setRefreshKey(prev => prev + 1);
     } catch (error: any) {
       console.error('Error saving Evo config:', error);
-      toast({ variant: 'destructive', title: 'Erro', description: error.message });
+      toast({ variant: 'destructive', title: 'Erro na sincronização', description: error.message });
     } finally {
       setSaving(false);
     }
@@ -375,16 +374,43 @@ export default function AdminIntegrationsPage() {
   };
 
   const handleTestEvoConnection = async () => {
+    if (!evoConfig.base_url) {
+      toast({ variant: 'destructive', title: 'Erro', description: 'Informe a URL Base' });
+      return;
+    }
     setTestingEvo(true);
-    // Mock testing
-    setTimeout(() => {
-      setTestingEvo(false);
-      if (evoConfig.base_url.startsWith('http')) {
-        toast({ title: 'Conexão bem-sucedida!', description: 'A instância respondeu corretamente (Simulado).' });
+    try {
+      // Real test via Proxy or direct ping if possible (Edge Function is better)
+      const { data, error } = await supabase.functions.invoke('evolution-health', {
+        body: {
+          team_id: activeTenant?.id,
+          // Temporary override to test unsaved values
+          override: {
+            base_url: evoConfig.base_url,
+            api_key: evoConfig.api_key,
+            instance_key: evoConfig.instance_name
+          }
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.server?.reachable) {
+        toast({ title: 'Conexão Real Bem-sucedida!', description: `Servidor Evolution alcançado (Versão: ${data.instance?.details?.version || '2.x'})` });
       } else {
-        toast({ variant: 'destructive', title: 'Erro na conexão', description: 'URL base inválida ou não responde.' });
+        throw new Error("Servidor não alcançado. Verifique a URL.");
       }
-    }, 1500);
+    } catch (err: any) {
+      console.warn('Real test failed, falling back to basic check:', err);
+      // Basic fallback
+      if (evoConfig.base_url.startsWith('http')) {
+        toast({ title: 'Teste básico OK', description: 'A URL parece válida, mas salve para validar as credenciais.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Erro na conexão', description: err.message || 'URL base inválida.' });
+      }
+    } finally {
+      setTestingEvo(false);
+    }
   };
 
   const handleOpenAgentDialog = (agent?: Agent) => {
@@ -639,7 +665,7 @@ export default function AdminIntegrationsPage() {
               </Card>
 
               {/* WHATSAPP SESSION MANAGEMENT */}
-              <WhatsAppSessionCard />
+              <WhatsAppSessionCard refreshKey={refreshKey} />
             </TabsContent>
 
             {/* ASANA TAB */}

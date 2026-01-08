@@ -37,7 +37,7 @@ serve(async (req) => {
         const supabase = createClient(supabaseUrl, serviceKey);
 
         // 1) Load instance config
-        const { data: inst, error: instErr } = await supabase
+        const { data: dbInst, error: instErr } = await supabase
             .from("wa_instances")
             .select("id, team_id, evolution_instance_key, evolution_base_url, evolution_api_key, status, created_at, updated_at")
             .eq("team_id", team_id)
@@ -45,15 +45,29 @@ serve(async (req) => {
 
         if (instErr) throw instErr;
 
-        if (!inst || !inst.evolution_base_url || !inst.evolution_api_key || !inst.evolution_instance_key) {
+        // Support override for real-time testing before save
+        const override = body.override || {};
+        const inst = {
+            evolution_base_url: override.base_url || dbInst?.evolution_base_url,
+            evolution_api_key: override.api_key || dbInst?.evolution_api_key,
+            evolution_instance_key: override.instance_key || dbInst?.evolution_instance_key,
+        };
+
+        const overrideUsed = !!body.override;
+        const dbConfigured = !!(dbInst?.evolution_base_url && dbInst?.evolution_api_key && dbInst?.evolution_instance_key);
+        const configured = !!(inst.evolution_base_url && inst.evolution_api_key && inst.evolution_instance_key);
+
+        if (!configured) {
             return new Response(JSON.stringify({
                 ok: true,
                 team_id,
                 provider: "evolution",
+                db_configured: dbConfigured,
+                override_used: overrideUsed,
                 server: { reachable: false, base_url_masked: inst?.evolution_base_url ? maskUrl(inst.evolution_base_url) : null, latency_ms: null },
                 instance: { configured: false, key: inst?.evolution_instance_key ?? null, status: "NOT_CONFIGURED", details: null },
                 auth: { valid: false, http_status: null },
-                error: null,
+                error: "DADOS_INCOMPLETOS",
             }), { headers: { "Content-Type": "application/json" } });
         }
 
@@ -129,6 +143,8 @@ serve(async (req) => {
             ok: true,
             team_id,
             provider: "evolution",
+            db_configured: dbConfigured,
+            override_used: overrideUsed,
             server: {
                 reachable: serverReachable,
                 base_url_masked: maskUrl(baseUrl),

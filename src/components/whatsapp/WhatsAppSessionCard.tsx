@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTenant } from "@/contexts/TenantContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,28 +9,6 @@ import { Loader2, QrCode, RefreshCcw, Power, RotateCcw, Copy, CheckCircle2, XCir
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
-function useTeamId() {
-    const [teamId, setTeamId] = useState<string | null>(null);
-
-    useEffect(() => {
-        const fetchTeamId = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('team_id')
-                .eq('id', user.id)
-                .single();
-
-            setTeamId(profile?.team_id ?? null);
-        };
-
-        fetchTeamId();
-    }, []);
-
-    return teamId;
-}
 
 type HealthResponse = {
     ok: boolean;
@@ -85,8 +64,9 @@ async function callEdge<T>(fn: string, body: any): Promise<T> {
     return data as T;
 }
 
-export default function WhatsAppSessionCard() {
-    const teamId = useTeamId();
+export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: number }) {
+    const { activeTenant } = useTenant();
+    const teamId = activeTenant?.id || null;
     const { toast } = useToast();
 
     const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -140,11 +120,11 @@ export default function WhatsAppSessionCard() {
             const res = await callEdge<QrResponse>("evolution-qr", { team_id: teamId });
 
             if (!res.ok) {
-                toast({ title: "Falha ao gerar QR", description: res.error, variant: "destructive" });
+                toast({ title: "Falha ao gerar QR", description: (res as any).error, variant: "destructive" });
                 return;
             }
 
-            setQr(res.qr);
+            setQr((res as any).qr);
             toast({ title: "QR gerado", description: "Abra o WhatsApp Business e escaneie quando estiver com o telefone." });
 
             startPolling();
@@ -224,7 +204,7 @@ export default function WhatsAppSessionCard() {
         if (teamId) fetchHealth(true);
         return () => stopPolling();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [teamId]);
+    }, [teamId, refreshKey]);
 
     const infoText = useMemo(() => {
         if (st === "NOT_CONFIGURED") return "Configure a Evolution (base_url, api_key e instance_key) na aba WhatsApp para este team.";

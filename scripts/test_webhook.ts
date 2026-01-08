@@ -1,6 +1,8 @@
 
 
-const WEBHOOK_URL = 'https://qoolzhzdcfnyblymdvbq.supabase.co/functions/v1/zapi-webhook';
+const WEBHOOK_URL = process.env.VITE_SUPABASE_URL
+    ? `${process.env.VITE_SUPABASE_URL}/functions/v1/zapi-webhook`
+    : 'https://rzlrslywbszlffmaglln.supabase.co/functions/v1/zapi-webhook';
 
 async function testWebhook() {
     const payload = {
