@@ -1,4 +1,16 @@
-project_id = "qoolzhzdcfnyblymdvbq"
+project_id = "rzlrslywbszlffmaglln"
+
+[functions.evolution-health]
+verify_jwt = true
+
+[functions.evolution-qr]
+verify_jwt = true
+
+[functions.evolution-session]
+verify_jwt = true
+
+[functions.evolution-webhook]
+verify_jwt = false
 
 [functions.zapi-webhook]
 verify_jwt = false
