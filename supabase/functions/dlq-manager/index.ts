@@ -9,6 +9,40 @@ const ALLOWED_ORIGINS = [
     "http://localhost:3000",
 ];
 
+const ALLOWED_ROLES = ["anon", "authenticated", "service_role"];
+
+function getSupabaseJwt(req: Request): string | null {
+    const auth = req.headers.get("Authorization");
+    if (auth?.startsWith("Bearer ")) return auth.slice(7);
+    return null;
+}
+
+function validateJwt(req: Request) {
+    const jwt = getSupabaseJwt(req);
+    if (!jwt) {
+        console.log("[Auth] No JWT found in Authorization header");
+        return null;
+    }
+    try {
+        const parts = jwt.split(".");
+        if (parts.length !== 3) {
+            console.log("[Auth] Invalid JWT structure (parts != 3)");
+            return null;
+        }
+        // JWT uses Base64URL
+        const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(atob(base64));
+        if (!ALLOWED_ROLES.includes(payload?.role)) {
+            console.log(`[Auth] Role '${payload?.role}' not allowed`);
+            return null;
+        }
+        return payload;
+    } catch (e) {
+        console.error("[Auth] JWT decode failed:", (e as Error).message);
+        return null;
+    }
+}
+
 function corsResponse(body: unknown, origin: string | null, status = 200) {
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -26,16 +60,22 @@ function corsResponse(body: unknown, origin: string | null, status = 200) {
     return new Response(JSON.stringify(body), { status, headers });
 }
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://rzlrslywbszlffmaglln.supabase.co";
+const serviceKey = Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabase = createClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+});
 
 serve(async (req) => {
     const origin = req.headers.get("Origin");
 
     if (req.method === 'OPTIONS') {
         return corsResponse({}, origin, 200);
+    }
+
+    const payload = validateJwt(req);
+    if (!payload) {
+        return corsResponse({ ok: false, error: 'Unauthorized' }, origin, 401);
     }
 
     try {

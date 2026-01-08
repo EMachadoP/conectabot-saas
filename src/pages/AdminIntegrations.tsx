@@ -396,18 +396,20 @@ export default function AdminIntegrationsPage() {
       if (error) throw error;
 
       if (data.server?.reachable) {
-        toast({ title: 'Conexão Real Bem-sucedida!', description: `Servidor Evolution alcançado (Versão: ${data.instance?.details?.version || '2.x'})` });
+        toast({
+          title: 'Conexão Real Bem-sucedida!',
+          description: `Servidor Evolution alcançado (Versão: ${data.instance?.details?.version || '2.x'})`
+        });
       } else {
-        throw new Error("Servidor não alcançado. Verifique a URL.");
+        throw new Error(data.error || "Servidor não alcançado. Verifique a URL e a API Key.");
       }
     } catch (err: any) {
-      console.warn('Real test failed, falling back to basic check:', err);
-      // Basic fallback
-      if (evoConfig.base_url.startsWith('http')) {
-        toast({ title: 'Teste básico OK', description: 'A URL parece válida, mas salve para validar as credenciais.' });
-      } else {
-        toast({ variant: 'destructive', title: 'Erro na conexão', description: err.message || 'URL base inválida.' });
-      }
+      console.error('Real test failed:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Erro na conexão',
+        description: err.message || 'Não foi possível validar a conexão. Verifique os logs do Supabase.'
+      });
     } finally {
       setTestingEvo(false);
     }

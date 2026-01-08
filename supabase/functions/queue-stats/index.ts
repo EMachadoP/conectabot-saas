@@ -21,6 +21,48 @@ const ALLOWED_ORIGINS = [
     "http://localhost:3000",
 ];
 
+const ALLOWED_ROLES = ["anon", "authenticated", "service_role"];
+
+function getSupabaseJwt(req: Request): string | null {
+    const auth = req.headers.get("Authorization");
+    if (auth?.startsWith("Bearer ")) return auth.slice(7);
+    return null;
+}
+
+function validateJwt(req: Request) {
+    const jwt = getSupabaseJwt(req);
+    if (!jwt) {
+        console.log("[Auth] No JWT found in Authorization header");
+        return null;
+    }
+    try {
+        const parts = jwt.split(".");
+        if (parts.length !== 3) {
+            console.log("[Auth] Invalid JWT structure (parts != 3)");
+            return null;
+        }
+        // JWT uses Base64URL
+        const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(atob(base64));
+
+        // Initialize Supabase client with service role key for potential fallback or additional checks
+        const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://rzlrslywbszlffmaglln.supabase.co";
+        const serviceKey = Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const supabase = createClient(supabaseUrl, serviceKey, {
+            auth: { autoRefreshToken: false, persistSession: false },
+        });
+
+        if (!ALLOWED_ROLES.includes(payload?.role)) {
+            console.log(`[Auth] Role '${payload?.role}' not allowed`);
+            return null;
+        }
+        return payload;
+    } catch (e) {
+        console.error("[Auth] JWT decode failed:", (e as Error).message);
+        return null;
+    }
+}
+
 function corsResponse(body: unknown, origin: string | null, status = 200) {
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -46,6 +88,11 @@ serve(async (req) => {
         return corsResponse({}, origin, 200);
     }
 
+    const payload = validateJwt(req);
+    if (!payload) {
+        return corsResponse({ ok: false, error: "Unauthorized" }, origin, 401);
+    }
+
     try {
         // Env vars no Supabase (Edge Function secrets)
         const UPSTASH_REDIS_REST_URL = Deno.env.get("UPSTASH_REDIS_REST_URL") ?? "";
@@ -56,7 +103,8 @@ serve(async (req) => {
         const REMINDER_DLQ_KEY = Deno.env.get("REMINDER_DLQ_KEY") ?? "reminder:dlq";
 
         if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
-            return corsResponse({ ok: false, error: "Missing Upstash env vars" }, origin, 500);
+            console.error("Missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN");
+            return corsResponse({ ok: false, error: "Missing Upstash env vars. Please set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in Supabase Secrets." }, origin, 500);
         }
 
         // LLEN em ambas

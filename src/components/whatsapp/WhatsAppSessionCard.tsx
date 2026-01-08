@@ -240,7 +240,7 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
                         {healthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
                     </Button>
 
-                    <Button size="sm" onClick={generateQr} disabled={qrLoading || !teamId || st === "NOT_CONFIGURED" || st === "AUTH_INVALID"}>
+                    <Button size="sm" onClick={generateQr} disabled={qrLoading || !teamId || st === "NOT_CONFIGURED"}>
                         {qrLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />}
                         <span className="ml-2">Gerar QR</span>
                     </Button>

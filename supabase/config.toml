@@ -1,13 +1,13 @@
 project_id = "rzlrslywbszlffmaglln"
 
 [functions.evolution-health]
-verify_jwt = true
+verify_jwt = false
 
 [functions.evolution-qr]
-verify_jwt = true
+verify_jwt = false
 
 [functions.evolution-session]
-verify_jwt = true
+verify_jwt = false
 
 [functions.evolution-webhook]
 verify_jwt = false
@@ -70,4 +70,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.create-ticket]
+verify_jwt = false
+
+[functions.queue-stats]
+verify_jwt = false
+
+[functions.dlq-manager]
 verify_jwt = false
