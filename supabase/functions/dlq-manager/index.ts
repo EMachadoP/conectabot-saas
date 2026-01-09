@@ -73,8 +73,8 @@ serve(async (req) => {
         return corsResponse({}, origin, 200);
     }
 
-    const payload = validateJwt(req);
-    if (!payload) {
+    const userPayload = validateJwt(req);
+    if (!userPayload) {
         return corsResponse({ ok: false, error: 'Unauthorized' }, origin, 401);
     }
 
@@ -95,28 +95,23 @@ serve(async (req) => {
             token: redisToken,
         });
 
-        // Get team_id from auth
-        const authHeader = req.headers.get('Authorization');
-        if (!authHeader) {
-            return corsResponse({ ok: false, error: 'Unauthorized' }, origin, 401);
+        const teamIdFromPayload = userPayload.team_id || userPayload.profile?.team_id;
+
+        // Note: For admin/system tasks like DLQ, we usually need a real user.
+        // If team_id is not in JWT payload, we might need a DB lookup.
+        let teamId = teamIdFromPayload;
+
+        if (!teamId && userPayload.sub) {
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('team_id')
+                .eq('id', userPayload.sub)
+                .single();
+            teamId = profile?.team_id;
         }
 
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-        if (authError || !user) {
-            return corsResponse({ ok: false, error: 'Unauthorized' }, origin, 401);
-        }
-
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('team_id')
-            .eq('id', user.id)
-            .single();
-
-        const teamId = profile?.team_id;
-        if (!teamId) {
-            return corsResponse({ ok: false, error: 'No team_id found' }, origin, 403);
+        if (!teamId && userPayload.role !== 'service_role') {
+            return corsResponse({ ok: false, error: 'No team_id found in token or profile' }, origin, 403);
         }
 
         // LIST DLQ items
@@ -137,7 +132,11 @@ serve(async (req) => {
                     }
                 })
                 .filter(Boolean)
-                .filter((item: any) => item.payload_original?.team_id === teamId);
+                .filter((item: any) => {
+                    // If service_role, show all. Otherwise filter by teamId.
+                    if (userPayload.role === 'service_role') return true;
+                    return item.payload_original?.team_id === teamId;
+                });
 
             return corsResponse({
                 ok: true,

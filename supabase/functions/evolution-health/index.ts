@@ -103,6 +103,13 @@ serve(async (req) => {
         // Service role (server-side only)
         const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://rzlrslywbszlffmaglln.supabase.co";
         const serviceKey = Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+        if (!serviceKey) {
+            console.error("[Config] SERVICE_ROLE_KEY is MISSING in environment");
+        } else {
+            console.log("[Config] SERVICE_ROLE_KEY found (length:", serviceKey.length, ")");
+        }
+
         const supabase = createClient(supabaseUrl, serviceKey, {
             auth: { autoRefreshToken: false, persistSession: false },
         });

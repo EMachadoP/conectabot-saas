@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-async function fetchWithTimeout(url: string, init: RequestInit, ms = 8000) {
+async function fetchWithTimeout(url: string, init: RequestInit, ms = 5000) {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), ms);
     try {

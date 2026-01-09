@@ -1,5 +1,6 @@
 // supabase/functions/queue-stats/index.ts
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 type UpstashResp<T> = { result: T; error?: string };
 
@@ -44,13 +45,6 @@ function validateJwt(req: Request) {
         // JWT uses Base64URL
         const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
         const payload = JSON.parse(atob(base64));
-
-        // Initialize Supabase client with service role key for potential fallback or additional checks
-        const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://rzlrslywbszlffmaglln.supabase.co";
-        const serviceKey = Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        const supabase = createClient(supabaseUrl, serviceKey, {
-            auth: { autoRefreshToken: false, persistSession: false },
-        });
 
         if (!ALLOWED_ROLES.includes(payload?.role)) {
             console.log(`[Auth] Role '${payload?.role}' not allowed`);
