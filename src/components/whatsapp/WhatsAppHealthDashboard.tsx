@@ -46,7 +46,7 @@ export default function WhatsAppHealthDashboard() {
                 .order('team_name');
 
             if (error) throw error;
-            setData(healthData as HealthData[]);
+            setData(healthData as unknown as HealthData[]);
             setLastRefresh(new Date());
         } catch (err) {
             console.error('Error fetching health dashboard:', err);

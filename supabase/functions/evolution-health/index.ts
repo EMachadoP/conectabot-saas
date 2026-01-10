@@ -205,11 +205,17 @@ serve(async (req) => {
                 const json = await res.json().catch(() => ({}));
                 details = json;
 
-                // heurística: detecta conectado
+                // heurística: detecta conectado/pendente
                 const txt = JSON.stringify(json).toLowerCase();
-                if (txt.includes("open") || txt.includes("connected") || txt.includes("online")) instanceStatus = "CONNECTED";
-                else if (txt.includes("close") || txt.includes("disconnected") || txt.includes("offline")) instanceStatus = "DISCONNECTED";
-                else instanceStatus = "UNKNOWN";
+                if (txt.includes("open") || txt.includes("connected") || txt.includes("online")) {
+                    instanceStatus = "CONNECTED";
+                } else if (txt.includes("connecting")) {
+                    instanceStatus = "DISCONNECTED"; // Or keep as is, but now we know it's not UNKNOWN
+                } else if (txt.includes("close") || txt.includes("disconnected") || txt.includes("offline")) {
+                    instanceStatus = "DISCONNECTED";
+                } else {
+                    instanceStatus = "UNKNOWN";
+                }
 
                 break;
             } catch (e) {

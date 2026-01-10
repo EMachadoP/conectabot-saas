@@ -228,6 +228,11 @@ serve(async (req) => {
         }
 
         if (qrRes.status === "PENDING") {
+            await supabase.from("wa_instances").update({
+                last_error: null,
+                last_qr_requested_at: new Date().toISOString()
+            }).eq("id", inst.id);
+
             return corsResponse({
                 ok: true,
                 status: "PENDING",
