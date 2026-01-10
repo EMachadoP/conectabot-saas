@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, QrCode, RefreshCcw, Power, RotateCcw, Copy, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { Loader2, QrCode, RefreshCcw, Power, RotateCcw, Copy, CheckCircle2, XCircle, AlertTriangle, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -84,6 +84,11 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
 
     const st = useMemo(() => statusLabel(health), [health]);
 
+    // Stuck detection: track when we first saw 'connecting' state
+    const firstSeenConnectingRef = useRef<number | null>(null);
+    const [stuckWarning, setStuckWarning] = useState(false);
+    const STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
     const stopPolling = () => {
         setPolling(false);
         if (pollingTimerRef.current) window.clearInterval(pollingTimerRef.current);
@@ -108,6 +113,26 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
             setHealthLoading(false);
         }
     };
+
+    // Check for stuck 'connecting' state
+    useEffect(() => {
+        const isConnecting = health?.instance?.details?.instance?.state === "connecting";
+
+        if (isConnecting && st === "DISCONNECTED") {
+            if (!firstSeenConnectingRef.current) {
+                firstSeenConnectingRef.current = Date.now();
+            } else {
+                const elapsed = Date.now() - firstSeenConnectingRef.current;
+                if (elapsed > STUCK_THRESHOLD_MS && !stuckWarning) {
+                    setStuckWarning(true);
+                }
+            }
+        } else {
+            // Reset if not connecting anymore
+            firstSeenConnectingRef.current = null;
+            setStuckWarning(false);
+        }
+    }, [health, st, stuckWarning]);
 
     const generateQr = async (attempt = 1) => {
         if (!teamId) {
@@ -207,6 +232,15 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
 
     const sessionAction = async (action: SessionAction) => {
         if (!teamId) return;
+
+        // Confirmation for disconnect
+        if (action === "disconnect") {
+            const confirmed = window.confirm(
+                "Desconectar a sessão do WhatsApp?\n\nIsso encerrará a conexão atual. Você precisará escanear o QR novamente para reconectar."
+            );
+            if (!confirmed) return;
+        }
+
         try {
             setActionLoading(action);
             const res = await callEdge<SessionResponse>("evolution-session", { team_id: teamId, action });
@@ -214,9 +248,16 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
                 toast({ title: "Falha na ação", description: res.error ?? "Erro", variant: "destructive" });
                 return;
             }
-            toast({ title: "Ação executada", description: `Ação: ${action}` });
+
+            const actionLabels: Record<SessionAction, string> = {
+                disconnect: "Sessão desconectada com sucesso. Gere um novo QR para reconectar.",
+                restart: "Sessão reiniciada. Aguarde alguns segundos e verifique o status."
+            };
+            toast({ title: "Ação executada", description: actionLabels[action] });
             setQr(null);
             stopPolling();
+            firstSeenConnectingRef.current = null;
+            setStuckWarning(false);
             await fetchHealth(true);
         } catch (e: any) {
             toast({ title: "Erro", description: e.message ?? String(e), variant: "destructive" });
@@ -300,6 +341,15 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
             </CardHeader>
 
             <CardContent className="space-y-4">
+                {stuckWarning && (
+                    <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                        <Clock className="h-4 w-4 text-amber-600" />
+                        <AlertTitle className="text-amber-700 dark:text-amber-400">Conexão demorando</AlertTitle>
+                        <AlertDescription className="text-amber-600 dark:text-amber-300">
+                            A instância está em "connecting" há mais de 5 minutos. Tente reiniciar a sessão ou verificar os logs do servidor Evolution.
+                        </AlertDescription>
+                    </Alert>
+                )}
                 <Alert>
                     <AlertTitle>Diagnóstico</AlertTitle>
                     <AlertDescription>{infoText}</AlertDescription>
