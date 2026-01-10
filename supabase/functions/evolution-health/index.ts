@@ -217,6 +217,29 @@ serve(async (req) => {
             }
         }
 
+        // Update DB with recent health check (only if instance exists in DB)
+        if (dbInst?.id) {
+            await supabase.from("wa_instances").update({
+                status: instanceStatus.toLowerCase() === "connected" ? "connected" : "disconnected",
+                last_status_details: {
+                    server: {
+                        reachable: serverReachable,
+                        latency_ms: serverLatency,
+                        http_status: serverHttp,
+                    },
+                    instance: {
+                        status: instanceStatus,
+                        details,
+                    },
+                    auth: {
+                        valid: authValid,
+                        http_status: authHttp,
+                    },
+                    checked_at: new Date().toISOString()
+                }
+            }).eq("id", dbInst.id);
+        }
+
         return corsResponse({
             ok: true,
             team_id,

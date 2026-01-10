@@ -214,8 +214,9 @@ serve(async (req) => {
 
         if (qrRes.status === "ERROR") {
             await supabase.from("wa_instances").update({
-                last_error: JSON.stringify(qrRes.error),
-                last_qr_at: new Date().toISOString(),
+                last_error: qrRes.error,
+                last_qr_requested_at: new Date().toISOString(),
+                status: 'error'
             }).eq("id", inst.id);
 
             return corsResponse({
@@ -239,7 +240,7 @@ serve(async (req) => {
         // Ready
         await supabase.from("wa_instances").update({
             last_error: null,
-            last_qr_at: new Date().toISOString(),
+            last_qr_requested_at: new Date().toISOString(),
         }).eq("id", inst.id);
 
         return corsResponse({
