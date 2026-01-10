@@ -114,6 +114,8 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
             toast({ title: "Sem team ativo", description: "Selecione um tenant/team para continuar.", variant: "destructive" });
             return;
         }
+
+        let shouldKeepLoading = false;
         try {
             if (attempt === 1) {
                 setQrLoading(true);
@@ -128,13 +130,13 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
                     description: (res as any).error || "Erro desconhecido",
                     variant: "destructive"
                 });
-                setQrLoading(false);
                 return;
             }
 
             if ((res as any).status === "PENDING") {
                 if (attempt < 5) {
                     console.log(`[WhatsAppSessionCard] QR PENDING, retrying (attempt ${attempt + 1}/5)...`);
+                    shouldKeepLoading = true;
                     setTimeout(() => generateQr(attempt + 1), 3000);
                     return;
                 } else {
@@ -143,7 +145,6 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
                         description: "A Evolution ainda está gerando o QR. Tente clicar em Gerar QR novamente em alguns instantes.",
                         variant: "default"
                     });
-                    setQrLoading(false);
                     return;
                 }
             }
@@ -162,8 +163,7 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
         } catch (e: any) {
             toast({ title: "Erro ao gerar QR", description: e.message ?? String(e), variant: "destructive" });
         } finally {
-            // Only set loading to false if we are not scheduling a retry
-            if (!((res as any)?.status === "PENDING" && attempt < 5)) {
+            if (!shouldKeepLoading) {
                 setQrLoading(false);
             }
         }
@@ -274,7 +274,7 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
                         {healthLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
                     </Button>
 
-                    <Button size="sm" onClick={generateQr} disabled={qrLoading || !teamId || st === "NOT_CONFIGURED"}>
+                    <Button size="sm" onClick={() => generateQr()} disabled={qrLoading || !teamId || st === "NOT_CONFIGURED"}>
                         {qrLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />}
                         <span className="ml-2">Gerar QR</span>
                     </Button>
