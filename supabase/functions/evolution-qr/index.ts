@@ -73,21 +73,17 @@ function corsResponse(body: unknown, origin: string | null, status = 200) {
 }
 
 /**
- * Evolution APIs variam por versão.
- * Aqui tentamos endpoints candidatos até obter um QR.
+ * Evolution APIs vary by version.
+ * For v2.2.3, we primarily use /instance/connect/{instanceName}.
  */
 async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
     const headers = { "Content-Type": "application/json", "apikey": apiKey };
 
     const candidates: Array<{ method: "GET" | "POST"; url: string; body?: any }> = [
-        // mais comuns
+        // v2.x primary endpoint
         { method: "GET", url: `${baseUrl}/instance/connect/${encodeURIComponent(instanceKey)}` },
+        // fallbacks for different versions/configs
         { method: "GET", url: `${baseUrl}/instance/qrcode/${encodeURIComponent(instanceKey)}` },
-        { method: "GET", url: `${baseUrl}/instance/qr/${encodeURIComponent(instanceKey)}` },
-
-        // algumas versões exigem POST
-        { method: "POST", url: `${baseUrl}/instance/connect`, body: { instance: instanceKey } },
-        { method: "POST", url: `${baseUrl}/instance/qrcode`, body: { instance: instanceKey } },
     ];
 
     let lastErr: any = null;
@@ -107,16 +103,22 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
             const text = await res.text();
             if (!res.ok) {
                 lastErr = { http_status: res.status, body: text, tried: c.url };
-                // 401/403: não adianta tentar outros
+                // 401/403: don't bother trying others
                 if (res.status === 401 || res.status === 403) break;
                 continue;
             }
 
-            // tenta parsear
+            // try parse
             let json: any = {};
             try { json = JSON.parse(text); } catch { json = { raw: text }; }
 
-            // heurísticas para achar o QR (pode vir como base64, string, qr, qrcode, etc.)
+            // [FIX] Evolution v2.2.3 returns {"count":0} when QR is not yet ready
+            if (json?.count === 0) {
+                console.log(`[evolution-qr] instance connect pending (count=0) for ${instanceKey}`);
+                return { status: "PENDING" as const, raw: json };
+            }
+
+            // heuristics to find the QR
             const qrBase64 =
                 json?.qr ??
                 json?.qrcode ??
@@ -130,10 +132,10 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
                 const value = qrBase64.startsWith("data:image")
                     ? qrBase64
                     : `data:image/png;base64,${qrBase64}`;
-                return { ok: true, value, raw: json };
+                return { status: "READY" as const, value, raw: json, type: "image_base64" as const };
             }
 
-            // alguns retornam um "pairing code" ou string QR
+            // pairing code or string QR
             const qrText =
                 json?.code ??
                 json?.pairingCode ??
@@ -144,7 +146,7 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
                 null;
 
             if (typeof qrText === "string" && qrText.length > 10) {
-                return { ok: true, value: qrText, raw: json, type: "text" as const };
+                return { status: "READY" as const, value: qrText, raw: json, type: "text" as const };
             }
 
             lastErr = { http_status: res.status, body: json, tried: c.url };
@@ -153,7 +155,7 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
         }
     }
 
-    return { ok: false, error: lastErr };
+    return { status: "ERROR" as const, error: lastErr };
 }
 
 serve(async (req) => {
@@ -195,28 +197,43 @@ serve(async (req) => {
         const baseUrl = normalizeBaseUrl(inst.evolution_base_url);
         const qrRes = await tryGetQr(baseUrl, inst.evolution_api_key, inst.evolution_instance_key);
 
-        if (!qrRes.ok) {
+        if (qrRes.status === "ERROR") {
             await supabase.from("wa_instances").update({
                 last_error: JSON.stringify(qrRes.error),
                 last_qr_at: new Date().toISOString(),
             }).eq("id", inst.id);
 
-            return corsResponse({ ok: false, error: "QR_FAILED", details: qrRes.error }, origin, 502);
+            return corsResponse({
+                ok: false,
+                status: "ERROR",
+                error: "QR_FAILED",
+                details: qrRes.error
+            }, origin, 502);
         }
 
+        if (qrRes.status === "PENDING") {
+            return corsResponse({
+                ok: true,
+                status: "PENDING",
+                team_id,
+                instance_key: inst.evolution_instance_key,
+                raw: qrRes.raw
+            }, origin, 200);
+        }
+
+        // Ready
         await supabase.from("wa_instances").update({
             last_error: null,
             last_qr_at: new Date().toISOString(),
         }).eq("id", inst.id);
 
-        const qrType = (qrRes as any).type === "text" ? "text" : "image_base64";
-
         return corsResponse({
             ok: true,
+            status: "READY",
             team_id,
             instance_key: inst.evolution_instance_key,
-            qr: { type: qrType, value: qrRes.value },
-            raw: (qrRes as any).raw ?? null
+            qr: { type: qrRes.type, value: qrRes.value },
+            raw: qrRes.raw ?? null
         }, origin, 200);
 
     } catch (e) {
