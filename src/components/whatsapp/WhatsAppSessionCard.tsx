@@ -21,8 +21,9 @@ type HealthResponse = {
 };
 
 type QrResponse =
-    | { ok: true; team_id: string; instance_key: string; qr: { type: "image_base64" | "text"; value: string }; raw?: any }
-    | { ok: false; error: string; details?: any };
+    | { ok: true; status: "READY"; team_id: string; instance_key: string; qr: { type: "image_base64" | "text"; value: string }; raw?: any }
+    | { ok: true; status: "PENDING"; team_id: string; instance_key: string; raw?: any }
+    | { ok: false; status?: "ERROR"; error: string; details?: any };
 
 type SessionAction = "disconnect" | "restart";
 type SessionResponse = { ok: boolean; action?: SessionAction; response?: any; error?: string; details?: any };
@@ -108,30 +109,63 @@ export default function WhatsAppSessionCard({ refreshKey }: { refreshKey?: numbe
         }
     };
 
-    const generateQr = async () => {
+    const generateQr = async (attempt = 1) => {
         if (!teamId) {
             toast({ title: "Sem team ativo", description: "Selecione um tenant/team para continuar.", variant: "destructive" });
             return;
         }
         try {
-            setQrLoading(true);
-            setQr(null);
+            if (attempt === 1) {
+                setQrLoading(true);
+                setQr(null);
+            }
 
             const res = await callEdge<QrResponse>("evolution-qr", { team_id: teamId });
 
-            if (!res.ok) {
-                toast({ title: "Falha ao gerar QR", description: (res as any).error, variant: "destructive" });
+            if (!res.ok || (res as any).status === "ERROR") {
+                toast({
+                    title: "Falha ao gerar QR",
+                    description: (res as any).error || "Erro desconhecido",
+                    variant: "destructive"
+                });
+                setQrLoading(false);
                 return;
             }
 
-            setQr((res as any).qr);
-            toast({ title: "QR gerado", description: "Abra o WhatsApp Business e escaneie quando estiver com o telefone." });
+            if ((res as any).status === "PENDING") {
+                if (attempt < 5) {
+                    console.log(`[WhatsAppSessionCard] QR PENDING, retrying (attempt ${attempt + 1}/5)...`);
+                    setTimeout(() => generateQr(attempt + 1), 3000);
+                    return;
+                } else {
+                    toast({
+                        title: "QR Code demorando",
+                        description: "A Evolution ainda está gerando o QR. Tente clicar em Gerar QR novamente em alguns instantes.",
+                        variant: "default"
+                    });
+                    setQrLoading(false);
+                    return;
+                }
+            }
 
-            startPolling();
+            // Caso seja status "READY" ou formato antigo (ok: true sem status)
+            const qrData = (res as any).qr;
+            if (qrData) {
+                setQr(qrData);
+                toast({ title: "QR gerado", description: "Abra o WhatsApp Business e escaneie quando estiver com o telefone." });
+                startPolling();
+            } else {
+                // Se der ok mas não vier QR e não for PENDING
+                console.warn("[WhatsAppSessionCard] QR READY but no data", res);
+                toast({ title: "QR não encontrado", description: "A resposta do servidor foi positiva mas sem dados de QR.", variant: "destructive" });
+            }
         } catch (e: any) {
             toast({ title: "Erro ao gerar QR", description: e.message ?? String(e), variant: "destructive" });
         } finally {
-            setQrLoading(false);
+            // Only set loading to false if we are not scheduling a retry
+            if (!((res as any)?.status === "PENDING" && attempt < 5)) {
+                setQrLoading(false);
+            }
         }
     };
 
