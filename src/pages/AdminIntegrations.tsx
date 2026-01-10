@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useToast } from '@/hooks/use-toast';
 import { PRODUCT } from '@/config/product';
 import WhatsAppSessionCard from '@/components/whatsapp/WhatsAppSessionCard';
+import WhatsAppHealthDashboard from '@/components/whatsapp/WhatsAppHealthDashboard';
 
 interface IntegrationsSettings {
   id: string;
@@ -557,6 +558,7 @@ export default function AdminIntegrationsPage() {
               <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
               {PRODUCT.flags.enableAsana && <TabsTrigger value="asana">Asana</TabsTrigger>}
               <TabsTrigger value="agents">Agentes</TabsTrigger>
+              <TabsTrigger value="monitoring">Monitoramento</TabsTrigger>
               <TabsTrigger value="system">Sistema</TabsTrigger>
             </TabsList>
 
@@ -824,6 +826,11 @@ export default function AdminIntegrationsPage() {
                   </Table>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* MONITORING TAB */}
+            <TabsContent value="monitoring" className="space-y-6">
+              <WhatsAppHealthDashboard />
             </TabsContent>
 
             {/* SYSTEM TAB */}
