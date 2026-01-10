@@ -90,6 +90,7 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
 
     for (const c of candidates) {
         try {
+            console.log(`[evolution-qr] Trying ${c.method} ${c.url}`);
             const res = await fetchWithTimeout(
                 c.url,
                 {
@@ -101,6 +102,8 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
             );
 
             const text = await res.text();
+            console.log(`[evolution-qr] Response status: ${res.status}, body length: ${text.length}`);
+
             if (!res.ok) {
                 lastErr = { http_status: res.status, body: text, tried: c.url };
                 // 401/403: don't bother trying others
@@ -111,6 +114,9 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
             // try parse
             let json: any = {};
             try { json = JSON.parse(text); } catch { json = { raw: text }; }
+
+            console.log(`[evolution-qr] Parsed JSON keys: ${Object.keys(json).join(", ")}`);
+            console.log(`[evolution-qr] Full response: ${JSON.stringify(json).substring(0, 500)}`);
 
             // [FIX] Evolution v2.2.3 returns {"count":0} when QR is not yet ready
             if (json?.count === 0) {
@@ -128,10 +134,13 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
                 json?.data?.base64 ??
                 null;
 
+            console.log(`[evolution-qr] qrBase64 found: ${qrBase64 ? `yes (length: ${qrBase64.length})` : "no"}`);
+
             if (typeof qrBase64 === "string" && qrBase64.length > 30) {
                 const value = qrBase64.startsWith("data:image")
                     ? qrBase64
                     : `data:image/png;base64,${qrBase64}`;
+                console.log(`[evolution-qr] Returning READY with image_base64`);
                 return { status: "READY" as const, value, raw: json, type: "image_base64" as const };
             }
 
@@ -145,16 +154,22 @@ async function tryGetQr(baseUrl: string, apiKey: string, instanceKey: string) {
                 json?.data?.qrString ??
                 null;
 
+            console.log(`[evolution-qr] qrText found: ${qrText ? `yes (length: ${qrText.length})` : "no"}`);
+
             if (typeof qrText === "string" && qrText.length > 10) {
+                console.log(`[evolution-qr] Returning READY with text`);
                 return { status: "READY" as const, value: qrText, raw: json, type: "text" as const };
             }
 
+            console.log(`[evolution-qr] No QR found in this response, trying next endpoint`);
             lastErr = { http_status: res.status, body: json, tried: c.url };
         } catch (e) {
+            console.log(`[evolution-qr] Exception: ${String(e)}`);
             lastErr = { error: String(e), tried: c.url };
         }
     }
 
+    console.log(`[evolution-qr] All endpoints exhausted, returning ERROR`);
     return { status: "ERROR" as const, error: lastErr };
 }
 
