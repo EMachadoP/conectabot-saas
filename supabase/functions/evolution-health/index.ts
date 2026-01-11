@@ -206,13 +206,30 @@ serve(async (req) => {
                 details = json;
 
                 // heurística: detecta conectado/pendente
+                // PRIMEIRO: verificar padrões de erro/desconexão (prioridade sobre "open")
                 const txt = JSON.stringify(json).toLowerCase();
-                if (txt.includes("open") || txt.includes("connected") || txt.includes("online")) {
-                    instanceStatus = "CONNECTED";
-                } else if (txt.includes("connecting")) {
-                    instanceStatus = "DISCONNECTED"; // Or keep as is, but now we know it's not UNKNOWN
+
+                // Padrões que indicam desconexão forçada (mesmo que "open" apareça temporariamente)
+                const disconnectPatterns = [
+                    "device_removed",
+                    "stream:error",
+                    "connection errored",
+                    "logout",
+                    "failure",
+                    "refused",
+                    "kicked"
+                ];
+
+                const hasDisconnectSignal = disconnectPatterns.some(p => txt.includes(p));
+
+                if (hasDisconnectSignal) {
+                    instanceStatus = "DISCONNECTED";
                 } else if (txt.includes("close") || txt.includes("disconnected") || txt.includes("offline")) {
                     instanceStatus = "DISCONNECTED";
+                } else if (txt.includes("connecting")) {
+                    instanceStatus = "DISCONNECTED"; // connecting = ainda não conectado
+                } else if (txt.includes("open") || txt.includes("connected") || txt.includes("online")) {
+                    instanceStatus = "CONNECTED";
                 } else {
                     instanceStatus = "UNKNOWN";
                 }
