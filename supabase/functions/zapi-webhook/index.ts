@@ -18,10 +18,6 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get Security Token for private Z-API URLs
-    const { data: zapiSettings } = await supabase.from('zapi_settings').select('zapi_security_token').maybeSingle();
-    const zapiClientToken = Deno.env.get('ZAPI_CLIENT_TOKEN') || zapiSettings?.zapi_security_token;
-
     // --- LOG DE DEPURAÇÃO (ai_logs) ---
     // Registramos tudo o que chega para podermos debugar falhas em mensagens reais
     await supabase.from('ai_logs').insert({
@@ -32,16 +28,38 @@ serve(async (req) => {
       created_at: now
     });
 
-    // 1. Obter configurações
-    const { data: settings } = await supabase.from('zapi_settings')
-      .select('forward_webhook_url')
-      .is('team_id', null)
+    const instanceId =
+      payload.instanceId ||
+      payload.instance_id ||
+      payload.instance ||
+      payload.connectedPhone ||
+      req.headers.get('x-zapi-instance-id') ||
+      req.headers.get('x-instance-id');
+
+    if (!instanceId) {
+      throw new Error('Webhook Z-API sem identificador de instância');
+    }
+
+    // 1. Obter configurações do workspace correto
+    const { data: settings } = await supabase
+      .from('zapi_settings')
+      .select('workspace_id, forward_webhook_url, zapi_security_token')
+      .eq('zapi_instance_id', instanceId)
+      .limit(1)
       .maybeSingle();
+
+    if (!settings?.workspace_id) {
+      throw new Error(`Configuração Z-API não encontrada para a instância ${instanceId}`);
+    }
+
+    const workspaceId = settings.workspace_id;
+    const zapiClientToken = Deno.env.get('ZAPI_CLIENT_TOKEN') || settings.zapi_security_token;
 
     // Registrar sinal de vida
     await supabase.from('zapi_settings')
       .update({ last_webhook_received_at: now })
-      .is('team_id', null);
+      .eq('workspace_id', workspaceId)
+      .eq('zapi_instance_id', instanceId);
 
     // 2. ENCAMINHAMENTO (Forwarding)
     if (settings?.forward_webhook_url) {
@@ -85,6 +103,7 @@ serve(async (req) => {
 
     // 4. Salvar/Atualizar Contato do Chat (Grupo ou Individual)
     const { data: contact } = await supabase.from('contacts').upsert({
+      workspace_id: workspaceId,
       chat_lid: chatIdentifier,
       lid: chatIdentifier,
       name: chatName,
@@ -118,6 +137,7 @@ serve(async (req) => {
     } else {
       const { data: created, error: createErr } = await supabase.from('conversations')
         .upsert({
+          workspace_id: workspaceId,
           contact_id: contact.id,
           chat_id: chatLid,
           thread_key: chatLid,
@@ -174,6 +194,7 @@ serve(async (req) => {
     if (!existingMsg) {
       console.log('[Webhook] Salvando nova mensagem:', providerMsgId);
       const insertResult = await supabase.from('messages').insert({
+        workspace_id: workspaceId,
         conversation_id: conv.id,
         sender_type: fromMe ? 'agent' : 'contact',
         sender_name: senderName,

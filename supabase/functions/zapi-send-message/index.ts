@@ -22,6 +22,38 @@ serve(async (req) => {
   let conversation_id: string | undefined, content: string | undefined, senderName: string | undefined;
 
   try {
+    const requireBillingAccess = async (workspaceId: string, actionType: string, quantity = 1) => {
+      const { data, error } = await supabaseAdmin.rpc('can_perform_action', {
+        p_workspace_id: workspaceId,
+        p_action_type: actionType,
+        p_quantity: quantity,
+      });
+
+      if (error) {
+        throw new Error(`Falha ao validar billing: ${error.message}`);
+      }
+
+      const result = Array.isArray(data) ? data[0] : data;
+      if (!result?.allowed) {
+        const message = result?.reason === 'subscription_inactive'
+          ? 'Assinatura pendente. Regularize o pagamento para continuar usando.'
+          : 'Limite do plano atingido. Faça upgrade para continuar.';
+
+        return new Response(JSON.stringify({
+          error: message,
+          reason: result?.reason ?? 'billing_blocked',
+          plan_name: result?.plan_name ?? null,
+          usage: result?.current_usage ?? null,
+          limit: result?.usage_limit ?? null,
+        }), {
+          status: 402,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return null;
+    };
+
     const authHeader = req.headers.get('Authorization');
     // Permitir chamada interna com service key OU chamada de cliente com token de usuário
     const isServiceKey = authHeader?.includes(supabaseServiceKey);
@@ -65,13 +97,21 @@ serve(async (req) => {
 
     if (!conv) throw new Error('Conversa não localizada no banco');
 
-    // Credenciais - Tenta Env Var primeiro, depois banco
-    const { data: settings } = await supabaseAdmin.from('zapi_settings').select('*').limit(1).single();
+    const billingBlock = await requireBillingAccess(conv.workspace_id, 'outbound_message', 1);
+    if (billingBlock) return billingBlock;
 
-    // Prioridade: Env Var > Banco
-    const instanceId = Deno.env.get('ZAPI_INSTANCE_ID') || settings?.zapi_instance_id;
-    const token = Deno.env.get('ZAPI_TOKEN') || settings?.zapi_token;
-    const clientToken = Deno.env.get('ZAPI_CLIENT_TOKEN') || settings?.zapi_security_token;
+    // Credenciais do workspace da conversa
+    const { data: settings } = await supabaseAdmin
+      .from('zapi_settings')
+      .select('*')
+      .eq('workspace_id', conv.workspace_id)
+      .limit(1)
+      .maybeSingle();
+
+    // Prioridade: credenciais do workspace > env global
+    const instanceId = settings?.zapi_instance_id || Deno.env.get('ZAPI_INSTANCE_ID');
+    const token = settings?.zapi_token || Deno.env.get('ZAPI_TOKEN');
+    const clientToken = settings?.zapi_security_token || Deno.env.get('ZAPI_CLIENT_TOKEN');
 
     if (!instanceId || !token) {
       console.error('[Send Message] Erro: Faltam credenciais ZAPI (Instance ou Token)');
@@ -136,6 +176,7 @@ serve(async (req) => {
 
     // Salvar registro no banco
     await supabaseAdmin.from('messages').insert({
+      workspace_id: conv.workspace_id,
       conversation_id,
       sender_type: userId === 'system' ? 'agent' : 'agent', // 'agent' para ambos visualmente
       sender_id: userId === 'system' ? null : userId,
@@ -148,6 +189,12 @@ serve(async (req) => {
       provider_message_id: result.messageId || result.zapiMessageId,
       status: 'sent',
       direction: 'outbound'
+    });
+
+    await supabaseAdmin.rpc('record_usage', {
+      p_workspace_id: conv.workspace_id,
+      p_metric_name: 'messages_sent',
+      p_quantity: 1,
     });
 
     // AUTO-PAUSE AI: Se um humano (não system) enviou mensagem, pausar IA por 30min

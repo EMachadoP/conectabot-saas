@@ -67,7 +67,7 @@ export function EventDetailModal({ eventId, open, onOpenChange, onSuccess }: Eve
             // 1. Fetch Event with team_id
             const { data: eventData } = await supabase
                 .from('calendar_events')
-                .select('*, team_id:tenant_id')
+                .select('*, team_id:workspace_id')
                 .eq('id', eventId)
                 .single();
 
@@ -274,10 +274,10 @@ export function EventDetailModal({ eventId, open, onOpenChange, onSuccess }: Eve
                                 {/* Targets */}
                                 <div className="space-y-3">
                                     <h3 className="text-sm font-semibold flex items-center gap-2">
-                                        <Users className="w-4 h-4" /> Destinatários ({targets.length})
+                                        <Users className="w-4 h-4" /> Destinatários ({recipients.length})
                                     </h3>
                                     <div className="grid gap-2">
-                                        {targets.map((target, idx) => {
+                                        {recipients.map((target, idx) => {
                                             const token = getLatestTokenForTarget(target.jid);
                                             return (
                                                 <div key={idx} className="flex flex-col p-3 border rounded-md text-sm bg-background/50">

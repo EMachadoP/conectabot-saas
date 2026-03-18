@@ -1,38 +1,35 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useMemo } from 'react';
 import { useAuth } from './useAuth';
+import { useTenant } from '@/contexts/TenantContext';
 
-type AppRole = 'admin' | 'agent';
+type WorkspaceRole = 'owner' | 'admin' | 'agent';
 
 export function useUserRole() {
-  const { user } = useAuth();
-  const [roles, setRoles] = useState<AppRole[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user, loading: authLoading, appMetadata, workspaceRole: primaryWorkspaceRole } = useAuth();
+  const { activeTenant, loading: tenantLoading } = useTenant();
 
-  useEffect(() => {
-    if (!user) {
-      setRoles([]);
-      setLoading(false);
-      return;
+  const workspaceRoles = appMetadata.workspace_roles ?? appMetadata.tenant_roles ?? {};
+  const role = useMemo<WorkspaceRole>(() => {
+    if (!user) return 'agent';
+    if (activeTenant?.id && workspaceRoles[activeTenant.id]) {
+      return workspaceRoles[activeTenant.id];
     }
+    return primaryWorkspaceRole;
+  }, [activeTenant?.id, primaryWorkspaceRole, user, workspaceRoles]);
 
-    const fetchRoles = async () => {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id);
+  const roles = useMemo(() => {
+    if (!user) return [] as WorkspaceRole[];
 
-      if (!error && data) {
-        setRoles(data.map(r => r.role as AppRole));
-      }
-      setLoading(false);
-    };
+    const resolvedRoles: WorkspaceRole[] = ['agent'];
+    if (role === 'admin' || role === 'owner') resolvedRoles.unshift('admin');
+    if (role === 'owner') resolvedRoles.unshift('owner');
+    return resolvedRoles;
+  }, [role, user]);
 
-    fetchRoles();
-  }, [user]);
-
-  const isAdmin = roles.includes('admin');
+  const loading = authLoading || tenantLoading;
+  const isOwner = role === 'owner';
+  const isAdmin = isOwner || role === 'admin';
   const isAgent = roles.includes('agent');
 
-  return { roles, isAdmin, isAgent, loading };
+  return { roles, role, isAdmin, isOwner, isAgent, loading };
 }

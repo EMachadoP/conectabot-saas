@@ -43,13 +43,28 @@ serve(async (req) => {
         }
 
         // 3. Generate filename
-        const filename = `${mediaType}/${messageId}_${Date.now()}.${extension}`;
-
-        // 4. Upload to Supabase Storage
         const supabase = createClient(
             Deno.env.get('SUPABASE_URL')!,
             Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
         );
+
+        const { data: messageData, error: messageError } = await supabase
+            .from('messages')
+            .select('workspace_id, conversation_id')
+            .eq('id', messageId)
+            .single();
+
+        if (messageError || !messageData) {
+            throw new Error(`Failed to load message context: ${messageError?.message || 'Message not found'}`);
+        }
+
+        const workspaceId = messageData.workspace_id || 'unscoped';
+        const conversationId = messageData.conversation_id || 'no-conversation';
+
+        // 3. Generate filename
+        const filename = `${workspaceId}/${conversationId}/${mediaType}/${messageId}_${Date.now()}.${extension}`;
+
+        // 4. Upload to Supabase Storage
 
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('media-files')

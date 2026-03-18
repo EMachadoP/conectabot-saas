@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
+import { useToast } from '@/hooks/use-toast';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ConversationList } from '@/components/inbox/ConversationList';
 import { ChatArea } from '@/components/inbox/ChatArea';
@@ -18,6 +19,7 @@ export default function InboxPage() {
   const isMobile = useIsMobile();
   const { user, loading: authLoading } = useAuth();
   const { playNotificationSound } = useNotificationSound();
+  const { toast } = useToast();
 
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversationIdParam || null);
   const [activeContact, setActiveContact] = useState<any>(null);
@@ -91,9 +93,14 @@ export default function InboxPage() {
   }, [navigate]);
 
   const handleSendMessage = async (content: string) => {
-    // Debug Alerts
-    if (!user) { alert('Erro: Usuário não logado'); return; }
-    if (!activeConversationId) { alert('Erro: Nenhuma conversa selecionada (ID nulo)'); return; }
+    if (!user) {
+      toast({ variant: 'destructive', title: 'Sessão ausente', description: 'Faça login novamente.' });
+      return;
+    }
+    if (!activeConversationId) {
+      toast({ variant: 'destructive', title: 'Nenhuma conversa selecionada' });
+      return;
+    }
 
     try {
       // Obter sessão para Authorization Header
@@ -118,6 +125,15 @@ export default function InboxPage() {
 
       if (!response.ok) {
         const errorText = await response.text();
+        if (response.status === 402) {
+          toast({
+            variant: 'destructive',
+            title: 'Limite atingido ou assinatura pendente',
+            description: 'Regularize o plano para continuar enviando mensagens.',
+          });
+          navigate('/settings/billing');
+          return;
+        }
         throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
       }
 
@@ -125,11 +141,11 @@ export default function InboxPage() {
       // alert('Mensagem enviada!'); // Opcional, remover em produção
     } catch (error: any) {
       console.error('Erro ao enviar:', error);
-      // Import toast if not available, finding where it is imported or adding import if needed (it is not imported in original snippet, but likely available via sonner or similar in this project based on ChatArea.tsx having toast)
-      // Actually ChatArea receives toast, Inbox.tsx doesn't seem to import it.
-      // I will assume simple alert or console for now, or check imports.
-      // I'll add the import first if I can.
-      alert(`Erro ao enviar: ${error.message || 'Erro desconhecido'}`);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao enviar mensagem',
+        description: error.message || 'Erro desconhecido',
+      });
     }
   };
 

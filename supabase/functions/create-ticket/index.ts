@@ -87,6 +87,14 @@ serve(async (req) => {
         const condominium_id = resolvedCondominiumId;
         console.log('[create-ticket] Condomínio resolvido:', condominium_id);
 
+        const { data: conversationData } = await supabaseAdmin
+            .from('conversations')
+            .select('workspace_id')
+            .eq('id', conversation_id)
+            .single();
+
+        const workspaceId = conversationData?.workspace_id || null;
+
         // IDEMPOTENCY: Check for existing open protocol on this conversation
         const { data: existingProtocol, error: checkError } = await supabaseAdmin
             .from('protocols')
@@ -131,7 +139,9 @@ serve(async (req) => {
         const { data: settings } = await supabaseAdmin
             .from('integrations_settings')
             .select('*')
-            .single();
+            .eq('workspace_id', workspaceId)
+            .limit(1)
+            .maybeSingle();
 
         // 3. Buscar informações do condomínio (se disponível)
         let condominiumName = 'Não identificado';
@@ -163,6 +173,7 @@ serve(async (req) => {
                 conversation_id,
                 contact_id,
                 condominium_id,
+                workspace_id: workspaceId,
                 status: 'open',
                 priority,
                 category,
@@ -220,7 +231,9 @@ serve(async (req) => {
                 const { data: zapiSettings } = await supabaseAdmin
                     .from('zapi_settings')
                     .select('*')
-                    .single();
+                    .eq('workspace_id', workspaceId)
+                    .limit(1)
+                    .maybeSingle();
 
                 const instanceId = Deno.env.get('ZAPI_INSTANCE_ID') || zapiSettings?.zapi_instance_id;
                 const token = Deno.env.get('ZAPI_TOKEN') || zapiSettings?.zapi_token;

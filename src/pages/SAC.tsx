@@ -76,7 +76,7 @@ export default function SAC() {
             const { data, error } = await supabase
                 .from("sac_tickets")
                 .select("*")
-                .eq("tenant_id", activeTenant.id)
+                .eq("workspace_id", activeTenant.id)
                 .order("created_at", { ascending: false });
 
             if (error) throw error;

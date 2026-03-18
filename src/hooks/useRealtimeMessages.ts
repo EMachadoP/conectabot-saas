@@ -90,7 +90,7 @@ export function useRealtimeMessages(conversationId: string | null) {
         }
       )
       .subscribe((status) => {
-        if (status === 'SUBSCRIPTION_ERROR') {
+        if (status === 'CHANNEL_ERROR') {
           console.error('[RealtimeMessages] Subscription error, retrying...');
           setTimeout(() => fetchMessages(conversationId), 2000);
         }

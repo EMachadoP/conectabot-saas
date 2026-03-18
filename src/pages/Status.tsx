@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PRODUCT } from '@/config/product';
 
 interface StatusCheck {
   name: string;
@@ -81,7 +82,7 @@ export default function StatusPage() {
       <div className="p-6 max-w-lg mx-auto space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold">Status do Sistema</h1>
-          <p className="text-muted-foreground">Conectabot SaaS (NOVO) v{APP_VERSION}</p>
+          <p className="text-muted-foreground">{PRODUCT.name} v{APP_VERSION}</p>
         </div>
 
         <Card>

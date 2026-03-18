@@ -37,10 +37,23 @@ serve(async (req) => {
       throw new Error('OPENAI_API_KEY não configurada. Por favor, execute: npx supabase secrets set OPENAI_API_KEY="sua_chave"');
     }
 
-    // Buscar token Z-API
+    let workspaceId: string | null = null;
+    if (conversation_id) {
+      const { data: conversationData } = await supabaseAdmin
+        .from('conversations')
+        .select('workspace_id')
+        .eq('id', conversation_id)
+        .maybeSingle();
+
+      workspaceId = conversationData?.workspace_id || null;
+    }
+
+    // Buscar token Z-API do workspace da conversa
     const { data: zapiSettings } = await supabaseAdmin
       .from('zapi_settings')
       .select('zapi_security_token')
+      .eq('workspace_id', workspaceId)
+      .limit(1)
       .maybeSingle();
 
     const zapiClientToken = Deno.env.get('ZAPI_CLIENT_TOKEN') || zapiSettings?.zapi_security_token;

@@ -86,10 +86,8 @@ serve(async (req) => {
       content: m.content || '',
     }));
 
-    // 5. Buscar prompt e configurações globais
-    const { data: settings } = await supabase.from('ai_settings').select('*').maybeSingle();
-    let systemPrompt = settings?.base_system_prompt || "Você é um assistente virtual.";
-    let contextInfo = '';
+    // 5. Montar contexto complementar do workspace/conversa
+    let promptContext = '';
 
     if (participantState?.participants) {
       const participant = participantState.participants as any;
@@ -112,59 +110,31 @@ serve(async (req) => {
       const roleLabel = roleLabels[participant.role_type] || participant.role_type;
       const condoName = participant.entities?.name || 'não especificado';
 
-      contextInfo += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-      contextInfo += `\n📋 DADOS DO REMETENTE (JÁ IDENTIFICADOS)`;
-      contextInfo += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-      contextInfo += `\n👤 Nome: ${participant.name}`;
-      if (participant.role_type) contextInfo += `\n💼 Função: ${roleLabel}`;
-      if (participant.entities?.name) contextInfo += `\n🏢 Condomínio: ${condoName}`;
-      contextInfo += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      promptContext += `\nDADOS DO REMETENTE (JA IDENTIFICADOS)`;
+      promptContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      promptContext += `\nNome: ${participant.name}`;
+      if (participant.role_type) promptContext += `\nFuncao: ${roleLabel}`;
+      if (participant.entities?.name) promptContext += `\nCondominio: ${condoName}`;
+      promptContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
-      contextInfo += `\n\n⚠️ INSTRUÇÕES CRÍTICAS:`;
-      contextInfo += `\n1. NUNCA pergunte o nome do remetente - você JÁ SABE que é "${participant.name}"`;
-      if (participant.role_type) contextInfo += `\n2. NUNCA pergunte a função - você JÁ SABE que é "${roleLabel}"`;
-      if (participant.entities?.name) contextInfo += `\n3. NUNCA pergunte o condomínio - você JÁ SABE que é "${condoName}"`;
-      contextInfo += `\n4. Use essas informações DIRETAMENTE ao criar protocolos`;
-    }
-
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: settings?.timezone || 'America/Recife',
-      dateStyle: 'full',
-      timeStyle: 'medium',
-    });
-    const currentTimeStr = formatter.format(now);
-
-    const variables: Record<string, string> = {
-      '{{customer_name}}': conv.contacts?.name || 'Cliente',
-      '{{current_time}}': currentTimeStr,
-    };
-
-    for (const [key, value] of Object.entries(variables)) {
-      systemPrompt = systemPrompt.replace(new RegExp(key, 'g'), value);
+      promptContext += `\n\nINSTRUCOES CRITICAS:`;
+      promptContext += `\n1. Nunca pergunte o nome do remetente. Voce ja sabe que e "${participant.name}".`;
+      if (participant.role_type) promptContext += `\n2. Nunca pergunte a funcao. Voce ja sabe que e "${roleLabel}".`;
+      if (participant.entities?.name) promptContext += `\n3. Nunca pergunte o condominio. Voce ja sabe que e "${condoName}".`;
+      promptContext += `\n4. Use essas informacoes diretamente ao criar protocolos.`;
     }
 
     // Add message variation instructions
-    systemPrompt += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-    systemPrompt += `\n📝 REGRAS DE VARIAÇÃO DE MENSAGENS`;
-    systemPrompt += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-    systemPrompt += `\n\n⚠️ NUNCA REPITA A MESMA MENSAGEM!`;
-    systemPrompt += `\n\n1. **Varie a estrutura das frases** - Use diferentes formas de expressar a mesma ideia`;
-    systemPrompt += `\n2. **Use sinônimos** - Alterne palavras e expressões`;
-    systemPrompt += `\n3. **Mude a ordem** - Reorganize as informações de forma diferente`;
-    systemPrompt += `\n4. **Varie saudações** - Use diferentes formas de cumprimentar`;
-    systemPrompt += `\n5. **Personalize** - Adapte o tom conforme o contexto`;
-    systemPrompt += `\n\n✅ EXEMPLOS DE VARIAÇÃO:`;
-    systemPrompt += `\n\nMensagem 1: "Olá! Registrei seu chamado sob o protocolo #123. Vamos resolver isso rapidamente!"`;
-    systemPrompt += `\nMensagem 2: "Tudo certo! Criei o protocolo #124 para você. Nossa equipe já está ciente."`;
-    systemPrompt += `\nMensagem 3: "Perfeito! Anotei tudo no protocolo #125. Em breve daremos retorno."`;
-    systemPrompt += `\n\n❌ NUNCA faça:`;
-    systemPrompt += `\n- Repetir exatamente a mesma estrutura de frase`;
-    systemPrompt += `\n- Usar sempre as mesmas palavras de abertura`;
-    systemPrompt += `\n- Copiar o formato da mensagem anterior`;
-    systemPrompt += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-
-    systemPrompt += contextInfo;
+    promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    promptContext += `\nREGRAS DE VARIACAO DE MENSAGENS`;
+    promptContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    promptContext += `\nNunca repita a mesma mensagem.`;
+    promptContext += `\n1. Varie a estrutura das frases.`;
+    promptContext += `\n2. Use sinonimos.`;
+    promptContext += `\n3. Reorganize as informacoes.`;
+    promptContext += `\n4. Varie as saudacoes.`;
+    promptContext += `\n5. Personalize o tom conforme o contexto.`;
 
     // 5.5. Get participant_id for protocol creation
     const { data: participantData } = await supabase
@@ -186,9 +156,10 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         messages,
-        systemPrompt,
+        promptContext,
         conversation_id,
         participant_id,
+        workspace_id: conv.workspace_id,
       }),
     });
 

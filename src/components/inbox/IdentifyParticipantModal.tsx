@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { useTenant } from '@/contexts/TenantContext';
 import { toast } from 'sonner';
 
 interface Entity {
@@ -68,6 +69,7 @@ export function IdentifyParticipantModal({
   existingParticipant,
   onSaved,
 }: IdentifyParticipantModalProps) {
+  const { activeTenant } = useTenant();
   const [name, setName] = useState('');
   const [roleType, setRoleType] = useState<string>('');
   const [entityId, setEntityId] = useState<string>('');
@@ -107,6 +109,11 @@ export function IdentifyParticipantModal({
       return;
     }
 
+    if (!activeTenant) {
+      toast.error('Nenhum workspace ativo selecionado');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -142,6 +149,7 @@ export function IdentifyParticipantModal({
         const { data: newParticipant, error } = await supabase
           .from('participants')
           .insert({
+            workspace_id: activeTenant.id,
             contact_id: contactId,
             name: name.trim(),
             role_type: roleType || null,

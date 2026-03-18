@@ -5,6 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { TenantProvider } from "@/contexts/TenantContext";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { AdminRoute } from "@/components/auth/AdminRoute";
+import { PlatformAdminRoute } from "@/components/auth/PlatformAdminRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Inbox from "./pages/Inbox";
@@ -20,6 +23,9 @@ import Calendar from "./pages/Calendar";
 import SAC from "./pages/SAC";
 import SACTicketDetail from "./pages/SACTicketDetail";
 import Status from "./pages/Status";
+import TeamSettings from "./pages/TeamSettings";
+import BillingSettings from "./pages/BillingSettings";
+import SuperAdminClients from "./pages/SuperAdminClients";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,20 +41,23 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
-              <Route path="/inbox" element={<Inbox />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/admin" element={<Admin />} />
-              <Route path="/admin/ai" element={<AdminAI />} />
-              <Route path="/admin/knowledge" element={<AdminKnowledge />} />
-              <Route path="/admin/zapi" element={<AdminZAPI />} />
-              <Route path="/admin/contacts" element={<AdminContacts />} />
-              <Route path="/admin/duplicates" element={<AdminDuplicates />} />
-              <Route path="/admin/integrations" element={<AdminIntegrations />} />
-              <Route path="/inbox/:id" element={<Inbox />} />
-              <Route path="/calendar" element={<Calendar />} />
-              <Route path="/sac" element={<SAC />} />
-              <Route path="/sac/:id" element={<SACTicketDetail />} />
-              <Route path="/status" element={<Status />} />
+              <Route path="/inbox" element={<ProtectedRoute><Inbox /></ProtectedRoute>} />
+              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/admin" element={<ProtectedRoute><AdminRoute><Admin /></AdminRoute></ProtectedRoute>} />
+              <Route path="/admin/ai" element={<ProtectedRoute><AdminRoute><AdminAI /></AdminRoute></ProtectedRoute>} />
+              <Route path="/admin/knowledge" element={<ProtectedRoute><AdminRoute><AdminKnowledge /></AdminRoute></ProtectedRoute>} />
+              <Route path="/admin/zapi" element={<ProtectedRoute><AdminRoute><AdminZAPI /></AdminRoute></ProtectedRoute>} />
+              <Route path="/admin/contacts" element={<ProtectedRoute><AdminRoute><AdminContacts /></AdminRoute></ProtectedRoute>} />
+              <Route path="/admin/duplicates" element={<ProtectedRoute><AdminRoute><AdminDuplicates /></AdminRoute></ProtectedRoute>} />
+              <Route path="/admin/integrations" element={<ProtectedRoute><AdminRoute><AdminIntegrations /></AdminRoute></ProtectedRoute>} />
+              <Route path="/settings/team" element={<ProtectedRoute><AdminRoute><TeamSettings /></AdminRoute></ProtectedRoute>} />
+              <Route path="/settings/billing" element={<ProtectedRoute><AdminRoute><BillingSettings /></AdminRoute></ProtectedRoute>} />
+              <Route path="/super-admin/clients" element={<ProtectedRoute><PlatformAdminRoute><SuperAdminClients /></PlatformAdminRoute></ProtectedRoute>} />
+              <Route path="/inbox/:id" element={<ProtectedRoute><Inbox /></ProtectedRoute>} />
+              <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+              <Route path="/sac" element={<ProtectedRoute><SAC /></ProtectedRoute>} />
+              <Route path="/sac/:id" element={<ProtectedRoute><SACTicketDetail /></ProtectedRoute>} />
+              <Route path="/status" element={<ProtectedRoute><Status /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

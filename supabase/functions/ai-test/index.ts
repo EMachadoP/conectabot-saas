@@ -18,7 +18,7 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { message, teamId, providerId } = await req.json();
+    const { message, teamId, providerId, workspaceId } = await req.json();
 
     if (!message) {
       return new Response(
@@ -27,19 +27,25 @@ serve(async (req) => {
       );
     }
 
-    // Get global settings
-    const { data: settings } = await supabase
-      .from('ai_settings')
-      .select('*')
-      .limit(1)
-      .single();
+    const resolvedWorkspaceId = workspaceId || teamId || null;
 
-    if (!settings) {
-      return new Response(
-        JSON.stringify({ error: 'Configurações de IA não encontradas' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Get workspace settings
+    const { data: settings } = resolvedWorkspaceId
+      ? await supabase
+          .from('ai_settings')
+          .select('*')
+          .eq('workspace_id', resolvedWorkspaceId)
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
+
+    const { data: workspace } = resolvedWorkspaceId
+      ? await supabase
+          .from('workspaces')
+          .select('id, name')
+          .eq('id', resolvedWorkspaceId)
+          .maybeSingle()
+      : { data: null };
 
     // Get team settings if provided
     let teamSettings = null;
@@ -53,14 +59,17 @@ serve(async (req) => {
     }
 
     // Build system prompt with variables
-    let systemPrompt = teamSettings?.prompt_override || settings.base_system_prompt;
+    let systemPrompt = teamSettings?.prompt_override
+      || settings?.system_prompt
+      || settings?.base_system_prompt
+      || 'Você é um assistente virtual profissional.';
     
     const variables: Record<string, string> = {
       '{{customer_name}}': 'Cliente Teste',
-      '{{timezone}}': settings.timezone,
+      '{{timezone}}': settings?.timezone || 'America/Fortaleza',
       '{{business_hours}}': 'Seg-Sex 08:00-18:00, Sáb 08:00-12:00',
-      '{{policies}}': JSON.stringify(settings.policies_json || {}),
-      '{{company_name}}': 'Empresa',
+      '{{policies}}': JSON.stringify(settings?.policies_json || {}),
+      '{{company_name}}': workspace?.name || 'Empresa',
       '{{agent_name}}': 'Agente IA',
       '{{team_name}}': 'Equipe',
     };
@@ -84,6 +93,7 @@ serve(async (req) => {
         messages: [{ role: 'user', content: message }],
         systemPrompt,
         providerId,
+        workspace_id: resolvedWorkspaceId,
         ragEnabled: false, // Disable RAG for testing
       }),
     });

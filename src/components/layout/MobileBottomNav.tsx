@@ -1,5 +1,6 @@
-import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Ticket } from 'lucide-react';
+import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Ticket, Users, Share2, Link2, CreditCard } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
+import { usePlatformAdmin } from '@/hooks/usePlatformAdmin';
 import { useUserRole } from '@/hooks/useUserRole';
 import { cn } from '@/lib/utils';
 import { PRODUCT } from '@/config/product';
@@ -18,13 +19,18 @@ const navItems = [
 ];
 
 const adminItems = [
-  { path: '/admin', label: 'Admin', icon: Settings },
   { path: '/admin/ai', label: 'IA', icon: Bot },
+  { path: '/admin/zapi', label: 'Z-API', icon: Share2 },
+  { path: '/admin/integrations', label: 'Integrações', icon: Link2 },
+  { path: '/settings/team', label: 'Equipe', icon: Users },
+  { path: '/settings/billing', label: 'Plano', icon: CreditCard },
+  { path: '/super-admin/clients', label: 'Clientes', icon: Users, platformOnly: true },
 ];
 
 export function MobileBottomNav() {
   const location = useLocation();
   const { isAdmin } = useUserRole();
+  const { isPlatformAdmin } = usePlatformAdmin();
 
   const isActive = (path: string) => {
     if (path === '/inbox') {
@@ -68,7 +74,9 @@ export function MobileBottomNav() {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 mb-2">
-              {adminItems.map((item) => {
+              {adminItems
+                .filter((item) => !item.platformOnly || isPlatformAdmin)
+                .map((item) => {
                 const Icon = item.icon;
                 return (
                   <DropdownMenuItem key={item.path} asChild>

@@ -35,7 +35,7 @@ serve(async (req) => {
         // 1. Identification & Security
         const { data: integration, error: integrationError } = await supabase
             .from('tenant_integrations')
-            .select('tenant_id, webhook_secret, is_enabled')
+            .select('workspace_id, webhook_secret, is_enabled')
             .eq('instance_name', instanceName)
             .eq('provider', 'evolution')
             .maybeSingle();
@@ -58,7 +58,7 @@ serve(async (req) => {
             return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 200, headers: corsHeaders });
         }
 
-        const tenantId = integration.tenant_id;
+        const workspaceId = integration.workspace_id;
 
         // 2. Redis Deduplication (Idempotency)
         const redisUrl = Deno.env.get('UPSTASH_REDIS_REST_URL');
@@ -139,7 +139,7 @@ serve(async (req) => {
 
             // Upsert Contact
             const { data: contact } = await supabase.from('contacts').upsert({
-                tenant_id: tenantId,
+                workspace_id: workspaceId,
                 chat_lid: chatJid,
                 lid: chatJid,
                 name: chatName,
@@ -151,7 +151,7 @@ serve(async (req) => {
 
             // Upsert Conversation
             const { data: conv } = await supabase.from('conversations').upsert({
-                tenant_id: tenantId,
+                workspace_id: workspaceId,
                 contact_id: contact.id,
                 chat_id: chatJid,
                 thread_key: chatJid,
@@ -166,7 +166,7 @@ serve(async (req) => {
 
             // Save Message
             await supabase.from('messages').insert({
-                tenant_id: tenantId,
+                workspace_id: workspaceId,
                 conversation_id: conv.id,
                 sender_type: 'contact',
                 sender_name: chatName,

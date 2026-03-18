@@ -1,10 +1,10 @@
-# 🚀 G7 Client Connector (Wappal Connect)
+# 🚀 G7 Client Connector
 
 Sistema completo de atendimento multi-canal com IA conversacional para gestão de condomínios e empresas.
 
 ## 📋 Visão Geral
 
-**Wappal Connect** é uma plataforma SaaS de atendimento ao cliente que integra WhatsApp, IA conversacional, gestão de protocolos e automação de processos.
+**G7 Client Connector** é uma plataforma SaaS de atendimento ao cliente que integra WhatsApp, IA conversacional, gestão de protocolos e automação de processos.
 
 **URL Produção:** https://wappal-connect.vercel.app
 

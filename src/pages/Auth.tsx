@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import logo from '@/assets/logo.png';
+import { PRODUCT } from '@/config/product';
 
 const passwordSchema = z.string()
   .min(8, 'Senha deve ter pelo menos 8 caracteres')
@@ -27,6 +28,7 @@ const loginSchema = z.object({
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+  companyName: z.string().min(2, 'Nome da empresa deve ter pelo menos 2 caracteres'),
   email: z.string().email('Email inválido'),
   password: passwordSchema,
   confirmPassword: z.string(),
@@ -37,6 +39,10 @@ const signupSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 type SignupFormData = z.infer<typeof signupSchema>;
+type PasswordSetupFormData = {
+  password: string;
+  confirmPassword: string;
+};
 
 export default function AuthPage() {
   const { user, loading, signIn, signUp } = useAuth();
@@ -45,6 +51,12 @@ export default function AuthPage() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [isSendingReset, setIsSendingReset] = useState(false);
+  const [passwordSetup, setPasswordSetup] = useState<PasswordSetupFormData>({ password: '', confirmPassword: '' });
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  const authHashParams = useMemo(() => new URLSearchParams(window.location.hash.replace(/^#/, '')), []);
+  const authFlowType = authHashParams.get('type');
+  const isPasswordSetupFlow = authFlowType === 'invite' || authFlowType === 'recovery';
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -53,8 +65,17 @@ export default function AuthPage() {
 
   const signupForm = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { name: '', email: '', password: '', confirmPassword: '' },
+    defaultValues: { name: '', companyName: '', email: '', password: '', confirmPassword: '' },
   });
+
+  useEffect(() => {
+    if (!isPasswordSetupFlow || !user) return;
+
+    toast({
+      title: authFlowType === 'invite' ? 'Convite confirmado' : 'Recuperação de senha',
+      description: 'Defina sua senha para continuar.',
+    });
+  }, [authFlowType, isPasswordSetupFlow, toast, user]);
 
   if (loading) {
     return (
@@ -64,7 +85,7 @@ export default function AuthPage() {
     );
   }
 
-  if (user) {
+  if (user && !isPasswordSetupFlow) {
     return <Navigate to="/inbox" replace />;
   }
 
@@ -86,7 +107,7 @@ export default function AuthPage() {
 
   const handleSignup = async (data: SignupFormData) => {
     setIsSubmitting(true);
-    const { error } = await signUp(data.email, data.password, data.name);
+    const { error } = await signUp(data.email, data.password, data.name, data.companyName);
     setIsSubmitting(false);
 
     if (error) {
@@ -141,14 +162,106 @@ export default function AuthPage() {
     }
   };
 
+  const handlePasswordSetup = async () => {
+    if (passwordSetup.password !== passwordSetup.confirmPassword) {
+      toast({
+        variant: 'destructive',
+        title: 'Senhas não coincidem',
+        description: 'Confirme a mesma senha nos dois campos.',
+      });
+      return;
+    }
+
+    const validation = passwordSchema.safeParse(passwordSetup.password);
+    if (!validation.success) {
+      toast({
+        variant: 'destructive',
+        title: 'Senha inválida',
+        description: validation.error.errors[0]?.message ?? 'Revise os requisitos da senha.',
+      });
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    const { error } = await supabase.auth.updateUser({ password: passwordSetup.password });
+    setIsUpdatingPassword(false);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao definir senha',
+        description: error.message,
+      });
+      return;
+    }
+
+    window.history.replaceState(null, '', '/auth');
+    toast({
+      title: 'Senha definida com sucesso',
+      description: 'Seu acesso foi ativado. Redirecionando para a inbox.',
+    });
+    window.location.assign('/inbox');
+  };
+
+  if (isPasswordSetupFlow && user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 w-24 h-24">
+              <img src={logo} alt={PRODUCT.name} className="w-full h-full object-contain" />
+            </div>
+            <CardTitle>Defina sua senha</CardTitle>
+            <CardDescription>
+              {authFlowType === 'invite'
+                ? 'Seu convite foi validado. Crie uma senha para entrar no workspace.'
+                : 'Escolha uma nova senha para recuperar seu acesso.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="setup-password">Nova senha</Label>
+              <Input
+                id="setup-password"
+                type="password"
+                placeholder="••••••••"
+                value={passwordSetup.password}
+                onChange={(event) => setPasswordSetup((current) => ({ ...current, password: event.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="setup-confirm-password">Confirmar senha</Label>
+              <Input
+                id="setup-confirm-password"
+                type="password"
+                placeholder="••••••••"
+                value={passwordSetup.confirmPassword}
+                onChange={(event) => setPasswordSetup((current) => ({ ...current, confirmPassword: event.target.value }))}
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Use pelo menos 8 caracteres com letras maiúsculas, minúsculas e números.
+            </p>
+
+            <Button className="w-full" onClick={handlePasswordSetup} disabled={isUpdatingPassword}>
+              {isUpdatingPassword ? 'Salvando...' : 'Salvar senha e entrar'}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center pb-2">
           <div className="mx-auto mb-6 w-32 h-32">
-            <img src={logo} alt="G7" className="w-full h-full object-contain" />
+            <img src={logo} alt={PRODUCT.name} className="w-full h-full object-contain" />
           </div>
-          <CardTitle className="text-2xl">Conectabot SaaS (NOVO)</CardTitle>
+          <CardTitle className="text-2xl">{PRODUCT.name}</CardTitle>
           <CardDescription>
             Plataforma de atendimento WhatsApp
           </CardDescription>
@@ -233,6 +346,20 @@ export default function AuthPage() {
                   {signupForm.formState.errors.email && (
                     <p className="text-sm text-destructive">
                       {signupForm.formState.errors.email.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-company">Nome da Empresa</Label>
+                  <Input
+                    id="signup-company"
+                    placeholder="Nome da sua empresa"
+                    {...signupForm.register('companyName')}
+                  />
+                  {signupForm.formState.errors.companyName && (
+                    <p className="text-sm text-destructive">
+                      {signupForm.formState.errors.companyName.message}
                     </p>
                   )}
                 </div>

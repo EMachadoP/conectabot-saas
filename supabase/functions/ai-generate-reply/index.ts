@@ -28,6 +28,41 @@ function getLastByRole(msgs: { role: string; content: string }[], role: string) 
   return null;
 }
 
+function sanitizePrompt(prompt: string | null | undefined) {
+  if (!prompt) return "";
+  return prompt.split(/EXEMPLO ERRADO|EXEMPLO DE ERRO|MIMETISMO/i)[0].trim();
+}
+
+function interpolatePrompt(template: string, variables: Record<string, string>) {
+  let rendered = template;
+  for (const [key, value] of Object.entries(variables)) {
+    rendered = rendered.replace(new RegExp(key, 'g'), value);
+  }
+  return rendered;
+}
+
+function normalizeMessages(messages: any[]) {
+  return messages
+    .filter((message) => typeof message?.content === 'string')
+    .map((message) => ({
+      role: message.role === 'assistant' ? 'assistant' : message.role === 'system' ? 'system' : 'user',
+      content: message.content.trim(),
+    }))
+    .filter((message) => message.content.length > 0)
+    .slice(-50);
+}
+
+function buildDefaultSystemPrompt() {
+  return Deno.env.get('AI_DEFAULT_SYSTEM_PROMPT') ||
+    `Você é o assistente virtual da empresa {{company_name}}.
+
+Atenda em português brasileiro, com clareza, objetividade e empatia.
+O cliente atual chama-se {{contact_name}}.
+Se houver um protocolo ativo, considere o código {{protocol_number}}.
+Se o cliente pedir ajuda humana, informe que a equipe seguirá o atendimento.
+Nunca invente preços, prazos ou informações não confirmadas.`;
+}
+
 /**
  * Executes the create-protocol edge function
  */
@@ -133,17 +168,171 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    const requireBillingAccess = async (workspaceId: string, actionType: string, quantity = 1) => {
+      const { data, error } = await supabase.rpc('can_perform_action', {
+        p_workspace_id: workspaceId,
+        p_action_type: actionType,
+        p_quantity: quantity,
+      });
+
+      if (error) {
+        throw new Error(`Falha ao validar billing: ${error.message}`);
+      }
+
+      const result = Array.isArray(data) ? data[0] : data;
+      if (!result?.allowed) {
+        const message = result?.reason === 'subscription_inactive'
+          ? 'Assinatura pendente. Regularize o pagamento para continuar usando.'
+          : 'Limite do plano de IA atingido. Faça upgrade para continuar.';
+
+        return new Response(JSON.stringify({
+          error: message,
+          reason: result?.reason ?? 'billing_blocked',
+          plan_name: result?.plan_name ?? null,
+          usage: result?.current_usage ?? null,
+          limit: result?.usage_limit ?? null,
+        }), {
+          status: 402,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return null;
+    };
+
     const rawBody = await req.json();
-    const messages = (rawBody.messages || []).slice(0, 50); // Limit to 50
     const conversationIdRaw = rawBody.conversation_id || rawBody.conversationId || rawBody.conversation?.id;
     const conversationId = (typeof conversationIdRaw === 'string') ? conversationIdRaw : undefined;
     const participant_id = rawBody.participant_id; // Extract participant_id from request
+    let workspaceId = typeof rawBody.workspace_id === 'string' ? rawBody.workspace_id : undefined;
 
-    // Dynamically clean passed systemPrompt from negative examples (mimicry prevention)
-    let basePrompt = rawBody.systemPrompt || "";
-    basePrompt = basePrompt.split(/EXEMPLO ERRADO|EXEMPLO DE ERRO|MIMETISMO/i)[0].trim();
+    let conversation: any = null;
+    if (conversationId) {
+      const { data: conversationData, error: conversationError } = await supabase
+        .from('conversations')
+        .select('id, workspace_id, contact_id, active_protocol_id')
+        .eq('id', conversationId)
+        .maybeSingle();
 
-    const messagesNoSystem = messages.filter((m: any) => m.role !== 'system');
+      if (conversationError) {
+        throw new Error(`Falha ao carregar conversa: ${conversationError.message}`);
+      }
+
+      if (!conversationData) {
+        throw new Error(`Conversa ${conversationId} nao encontrada`);
+      }
+
+      conversation = conversationData;
+      workspaceId = workspaceId || conversation.workspace_id || undefined;
+    }
+
+    let contact: any = null;
+    let workspace: any = null;
+    let activeProtocol: any = null;
+
+    if (conversation?.contact_id) {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, name')
+        .eq('id', conversation.contact_id)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      contact = data;
+    }
+
+    if (workspaceId) {
+      const { data } = await supabase
+        .from('workspaces')
+        .select('id, name, slug')
+        .eq('id', workspaceId)
+        .maybeSingle();
+      workspace = data;
+    }
+
+    if (conversation?.active_protocol_id) {
+      const { data } = await supabase
+        .from('protocols')
+        .select('id, protocol_code')
+        .eq('id', conversation.active_protocol_id)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      activeProtocol = data;
+    }
+
+    const { data: workspaceSettings } = workspaceId
+      ? await supabase
+          .from('ai_settings')
+          .select('*')
+          .eq('workspace_id', workspaceId)
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
+
+    if (workspaceId) {
+      const billingBlock = await requireBillingAccess(workspaceId, 'ai_reply', 1);
+      if (billingBlock) return billingBlock;
+    }
+
+    const memoryMessageCount = Math.min(
+      Math.max(Number(workspaceSettings?.memory_message_count) || 10, 1),
+      20,
+    );
+
+    let normalizedMessages = normalizeMessages(rawBody.messages || []);
+    if (conversationId && workspaceId) {
+      const { data: historyMessages, error: historyError } = await supabase
+        .from('messages')
+        .select('content, sender_type')
+        .eq('conversation_id', conversationId)
+        .eq('workspace_id', workspaceId)
+        .order('sent_at', { ascending: false })
+        .limit(memoryMessageCount);
+
+      if (historyError) {
+        throw new Error(`Falha ao carregar historico da conversa: ${historyError.message}`);
+      }
+
+      if (historyMessages?.length) {
+        normalizedMessages = historyMessages
+          .slice()
+          .reverse()
+          .map((message) => ({
+            role: message.sender_type === 'contact' ? 'user' : 'assistant',
+            content: message.content || '',
+          }));
+      }
+    }
+
+    const messagesNoSystem = normalizedMessages.filter((m: any) => m.role !== 'system');
+
+    const promptTemplate = sanitizePrompt(
+      rawBody.systemPrompt ||
+      workspaceSettings?.system_prompt ||
+      workspaceSettings?.base_system_prompt ||
+      buildDefaultSystemPrompt(),
+    );
+    const promptContext = sanitizePrompt(rawBody.promptContext);
+
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: workspaceSettings?.timezone || 'America/Fortaleza',
+      dateStyle: 'full',
+      timeStyle: 'medium',
+    });
+    const currentTime = formatter.format(new Date());
+    const companyName = workspace?.name || 'G7 Client Connector';
+    const contactName = contact?.name || 'Cliente';
+    const protocolNumber = activeProtocol?.protocol_code || 'sem protocolo ativo';
+    const agentName = Deno.env.get('AI_DEFAULT_AGENT_NAME') || 'Ana Monica';
+
+    const renderedPrompt = interpolatePrompt(promptTemplate, {
+      '{{customer_name}}': contactName,
+      '{{contact_name}}': contactName,
+      '{{company_name}}': companyName,
+      '{{agent_name}}': agentName,
+      '{{protocol_number}}': protocolNumber,
+      '{{current_time}}': currentTime,
+      '{{timezone}}': workspaceSettings?.timezone || 'America/Fortaleza',
+    });
 
     // Get last user message and recent context
     const lastUserMsg = getLastByRole(messagesNoSystem, 'user');
@@ -175,7 +364,7 @@ serve(async (req) => {
       }
 
       try {
-        const ticketData = await executeCreateProtocol(supabase, supabaseUrl, supabaseServiceKey, conversationId, {
+        const ticketData = await executeCreateProtocol(supabase, supabaseUrl, supabaseServiceKey, conversationId, participant_id, {
           summary: (lastIssueMsg?.content || lastUserMsgText).slice(0, 500),
           priority: /travado|urgente|urgência|emergência/i.test(recentText) ? 'critical' : 'normal',
           apartment: aptCandidate
@@ -197,23 +386,28 @@ serve(async (req) => {
     // --- TIER 5: IA (LLM) ---
 
     // Final Prompt Reinforcement
-    const cleanPrompt = `${basePrompt}
+    const cleanPrompt = `${renderedPrompt}
 
-Sua personalidade é Ana Mônica, assistente da G7.
+${promptContext ? `${promptContext}\n\n` : ''}Sua personalidade atual e a de um assistente dedicado ao workspace ${companyName}.
+
 Sua única função é ajudar com problemas técnicos de condomínio.
 Para registrar um problema, use SEMPRE a ferramenta 'create_protocol' IMEDIATAMENTE.
 NUNCA diga que registrou o protocolo sem chamar a ferramenta.
 NUNCA invente preços ou prazos.`;
 
-    const { data: providerConfig } = await supabase
+    const providerQuery = supabase
       .from('ai_provider_configs')
       .select('*')
-      .eq('active', true)
-      .limit(1)
-      .single();
+      .limit(1);
+
+    const { data: providerConfig } = rawBody.providerId
+      ? await providerQuery.eq('id', rawBody.providerId).maybeSingle()
+      : await providerQuery.eq('active', true).maybeSingle();
 
     if (!providerConfig) throw new Error('Nenhum provedor de IA ativo configurado');
     const provider = providerConfig as any;
+    const selectedModel = workspaceSettings?.model_name || provider.model;
+    const selectedTemperature = Number(workspaceSettings?.temperature ?? provider.temperature) || 0.7;
 
     const apiKey = Deno.env.get(provider.key_ref || (provider.provider === 'lovable' ? 'LOVABLE_API_KEY' : ''));
     if (!apiKey) throw new Error(`Chave de API não encontrada para ${provider.provider}`);
@@ -244,16 +438,16 @@ NUNCA invente preços ou prazos.`;
           method: 'POST',
           headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: provider.model,
+            model: selectedModel,
             messages: [{ role: 'system', content: cleanPrompt }, ...messagesNoSystem],
             tools: protocolTool,
             tool_choice: 'auto',
-            temperature: Number(provider.temperature) || 0.7
+            temperature: selectedTemperature
           })
         }
       );
     } else if (provider.provider === 'gemini') {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent?key=${apiKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`;
       response = await fetch(geminiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -265,7 +459,7 @@ NUNCA invente preços ou prazos.`;
           })),
           tools: [{ functionDeclarations: [protocolTool[0].function] }],
           toolConfig: { functionCallingConfig: { mode: "AUTO" } },
-          generationConfig: { temperature: Number(provider.temperature) || 0.7 }
+          generationConfig: { temperature: selectedTemperature }
         })
       });
     } else { throw new Error(`Provedor não suportado: ${provider.provider}`); }
@@ -302,6 +496,14 @@ NUNCA invente preços ou prazos.`;
       tokensOut = responseData.usage?.completion_tokens || 0;
     }
 
+    if (workspaceId) {
+      const totalTokens = Math.max((tokensIn || 0) + (tokensOut || 0), 0);
+      if (totalTokens > 0) {
+        const tokenBillingBlock = await requireBillingAccess(workspaceId, 'ai_tokens', totalTokens);
+        if (tokenBillingBlock) return tokenBillingBlock;
+      }
+    }
+
     // --- FALLBACK INTENT DETECTION ---
     const aiSaidWillRegister = /vou registrar|vou abrir|vou encaminhar|registrei/i.test(generatedText);
     if (!functionCall && aiSaidWillRegister) {
@@ -335,10 +537,24 @@ NUNCA invente preços ou prazos.`;
       }
     }
 
+    if (workspaceId) {
+      await supabase.rpc('record_usage', {
+        p_workspace_id: workspaceId,
+        p_metric_name: 'ai_tokens',
+        p_quantity: Math.max((tokensIn || 0) + (tokensOut || 0), 0),
+      });
+
+      await supabase.rpc('record_usage', {
+        p_workspace_id: workspaceId,
+        p_metric_name: 'ai_replies',
+        p_quantity: 1,
+      });
+    }
+
     return new Response(JSON.stringify({
       text: generatedText,
       provider: provider.provider,
-      model: provider.model,
+      model: selectedModel,
       tokens_in: tokensIn,
       tokens_out: tokensOut,
       latency_ms: Date.now() - startTime,

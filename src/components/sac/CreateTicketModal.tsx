@@ -48,7 +48,7 @@ export function CreateTicketModal({ open, onOpenChange, onSuccess }: CreateTicke
             const { error: insertError } = await supabase
                 .from('sac_tickets')
                 .insert({
-                    tenant_id: activeTenant.id,
+                    workspace_id: activeTenant.id,
                     code,
                     title: formData.title,
                     description: formData.description || null,

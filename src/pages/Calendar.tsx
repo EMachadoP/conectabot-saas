@@ -58,7 +58,7 @@ export default function CalendarPage() {
                   *,
                   reminder_jobs (status)
                 `)
-                .eq('tenant_id', activeTenant.id)
+                .eq('workspace_id', activeTenant.id)
                 .gte('start_at', start)
                 .lte('start_at', end)
                 .order('start_at', { ascending: true });

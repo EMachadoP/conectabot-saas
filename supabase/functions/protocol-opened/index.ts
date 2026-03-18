@@ -212,8 +212,28 @@ serve(async (req) => {
       );
     }
 
+    let protocolId = protocol_id;
+    let whatsappMessageId: string | null = null;
+    let asanaTaskGid: string | null = null;
+    let workspaceId: string | null = null;
+
+    if (conversation_id) {
+      const { data: conversationData } = await supabase
+        .from('conversations')
+        .select('workspace_id')
+        .eq('id', conversation_id)
+        .maybeSingle();
+
+      workspaceId = conversationData?.workspace_id || null;
+    }
+
     // Get integration settings
-    const { data: settings } = await supabase.from("integrations_settings").select("*").limit(1).single();
+    const { data: settings } = await supabase
+      .from("integrations_settings")
+      .select("*")
+      .eq('workspace_id', workspaceId)
+      .limit(1)
+      .maybeSingle();
 
     if (!settings) {
       console.log("No integration settings found");
@@ -222,10 +242,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    let protocolId = protocol_id;
-    let whatsappMessageId: string | null = null;
-    let asanaTaskGid: string | null = null;
 
     // Formatar dados para exibição
     // Priorizar entity do participante, depois tentar extrair do summary
@@ -262,6 +278,7 @@ serve(async (req) => {
         conversation_id,
         contact_id,
         condominium_id,
+        workspace_id: workspaceId,
         status: "open",
         priority: priority || "normal",
         category: category || "operational",
@@ -301,7 +318,12 @@ serve(async (req) => {
     // ========== 1. Send WhatsApp Group Message ==========
     if (settings.whatsapp_notifications_enabled && settings.whatsapp_group_id) {
       try {
-        const { data: zapiSettings } = await supabase.from('zapi_settings').select('*').limit(1).single();
+        const { data: zapiSettings } = await supabase
+          .from('zapi_settings')
+          .select('*')
+          .eq('workspace_id', workspaceId)
+          .limit(1)
+          .maybeSingle();
 
         const zapiInstanceId = Deno.env.get("ZAPI_INSTANCE_ID") || zapiSettings?.zapi_instance_id;
         const zapiToken = Deno.env.get("ZAPI_TOKEN") || zapiSettings?.zapi_token;

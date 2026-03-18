@@ -5,6 +5,7 @@ import { Save, RotateCcw, Play, Loader2, Plus, Trash2, Pencil, Copy, Info } from
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useTenant } from '@/contexts/TenantContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -13,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -25,9 +27,14 @@ import { ptBR } from 'date-fns/locale';
 
 interface AISettings {
   id: string;
+  workspace_id: string;
+  tenant_id?: string;
   enabled_global: boolean;
   timezone: string;
   base_system_prompt: string;
+  system_prompt?: string | null;
+  model_name?: string | null;
+  temperature?: number | null;
   fallback_offhours_message: string;
   policies_json: Record<string, unknown>;
   memory_message_count: number;
@@ -188,9 +195,88 @@ const PROVIDER_INFO = {
   },
 };
 
+const PROMPT_PRESETS = [
+  {
+    key: 'default',
+    label: 'Atendimento Padrão',
+    description: 'Equilibrado para suporte diário e triagem geral.',
+    prompt: `Você é o assistente virtual da empresa {{company_name}}.
+
+Atenda em português brasileiro, com clareza, cordialidade e objetividade.
+O cliente atual chama-se {{contact_name}}.
+Se houver um protocolo em andamento, considere o código {{protocol_number}}.
+Seu papel é acolher, esclarecer e encaminhar quando necessário.
+Nunca invente preços, prazos ou informações não confirmadas.
+Se o cliente pedir atendimento humano, informe que a equipe seguirá a tratativa.`,
+  },
+  {
+    key: 'strict-support',
+    label: 'Suporte Rigoroso',
+    description: 'Mais conservador, ideal para operação técnica e protocolos.',
+    prompt: `Você é o assistente técnico da empresa {{company_name}}.
+
+Responda com tom direto, profissional e preciso.
+O cliente atual chama-se {{contact_name}}.
+Priorize coleta objetiva de dados, diagnóstico inicial e abertura correta de protocolo.
+Nunca improvise solução sem confirmação.
+Se faltar informação essencial, peça apenas o mínimo necessário para avançar.`,
+  },
+  {
+    key: 'appointments',
+    label: 'Agendamento',
+    description: 'Focado em confirmar horários, disponibilidade e próximos passos.',
+    prompt: `Você é o assistente de agendamentos da empresa {{company_name}}.
+
+Atenda de forma simpática, organizada e clara.
+O cliente atual chama-se {{contact_name}}.
+Seu objetivo é confirmar interesse, organizar datas e explicar os próximos passos.
+Sempre deixe a conversa objetiva e sem ambiguidade.
+Se não puder confirmar algo, diga que a equipe humana validará a agenda.`,
+  },
+];
+
+const WORKSPACE_MODEL_OPTIONS = [
+  {
+    value: 'google/gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
+    hint: 'Rápido e eficiente para alto volume.',
+  },
+  {
+    value: 'google/gemini-2.5-pro',
+    label: 'Gemini 2.5 Pro',
+    hint: 'Melhor para contextos longos e respostas mais refinadas.',
+  },
+  {
+    value: 'openai/gpt-5-mini',
+    label: 'GPT-5 Mini',
+    hint: 'Bom equilíbrio entre custo, velocidade e consistência.',
+  },
+  {
+    value: 'openai/gpt-5',
+    label: 'GPT-5',
+    hint: 'Mais robusto para fluxos premium e instruções complexas.',
+  },
+  {
+    value: 'gpt-4o-mini',
+    label: 'GPT-4o Mini',
+    hint: 'Ágil para suporte e operação de rotina.',
+  },
+];
+
+function getTemperatureProfile(value: number) {
+  if (value <= 0.3) {
+    return 'Conservadora e precisa. Ideal para suporte técnico e protocolos.';
+  }
+  if (value <= 0.6) {
+    return 'Equilibrada. Boa para atendimento geral e operação.';
+  }
+  return 'Criativa e variada. Melhor para vendas, relacionamento e marketing.';
+}
+
 export default function AdminAIPage() {
   const { user, loading: authLoading } = useAuth();
   const { isAdmin, loading: roleLoading } = useUserRole();
+  const { activeTenant } = useTenant();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -250,8 +336,9 @@ export default function AdminAIPage() {
       const { data: settingsData } = await supabase
         .from('ai_settings')
         .select('*')
+        .eq('workspace_id', activeTenant?.id ?? '')
         .limit(1)
-        .single();
+        .maybeSingle();
       
       if (settingsData) {
         // Cast schedule_json properly
@@ -274,6 +361,37 @@ export default function AdminAIPage() {
           policies_json: settingsData.policies_json as Record<string, unknown> ?? {},
           schedule_json: scheduleJson ?? defaultSchedule,
         } as AISettings);
+      } else if (activeTenant?.id) {
+        setSettings({
+          id: crypto.randomUUID(),
+          workspace_id: activeTenant.id,
+          tenant_id: activeTenant.id,
+          enabled_global: false,
+          timezone: 'America/Fortaleza',
+          base_system_prompt: DEFAULT_PROMPT,
+          system_prompt: DEFAULT_PROMPT,
+          model_name: null,
+          temperature: 0.7,
+          fallback_offhours_message: 'Recebemos sua mensagem e retornaremos no próximo horário útil.',
+          policies_json: {},
+          memory_message_count: 12,
+          enable_auto_summary: false,
+          anti_spam_seconds: 5,
+          max_messages_per_hour: 6,
+          human_request_pause_hours: 2,
+          schedule_json: {
+            days: {
+              monday: { enabled: true, start: '08:00', end: '18:00' },
+              tuesday: { enabled: true, start: '08:00', end: '18:00' },
+              wednesday: { enabled: true, start: '08:00', end: '18:00' },
+              thursday: { enabled: true, start: '08:00', end: '18:00' },
+              friday: { enabled: true, start: '08:00', end: '18:00' },
+              saturday: { enabled: true, start: '08:00', end: '12:00' },
+              sunday: { enabled: false, start: '08:00', end: '12:00' },
+            },
+            exceptions: [],
+          },
+        });
       }
 
       // Fetch team settings
@@ -325,21 +443,25 @@ export default function AdminAIPage() {
   };
 
   useEffect(() => {
-    if (user && isAdmin) {
+    if (user && isAdmin && activeTenant?.id) {
       fetchData();
     }
-  }, [user, isAdmin]);
+  }, [user, isAdmin, activeTenant?.id]);
 
   const handleSaveSettings = async () => {
-    if (!settings) return;
+    if (!settings || !activeTenant?.id) return;
     setSaving(true);
     try {
       const { error } = await supabase
         .from('ai_settings')
-        .update({
+        .upsert({
+          id: settings.id,
+          workspace_id: activeTenant.id,
+          tenant_id: activeTenant.id,
           enabled_global: settings.enabled_global,
           timezone: settings.timezone,
           base_system_prompt: settings.base_system_prompt,
+          system_prompt: settings.base_system_prompt,
           fallback_offhours_message: settings.fallback_offhours_message,
           policies_json: settings.policies_json as Json,
           memory_message_count: settings.memory_message_count,
@@ -348,8 +470,11 @@ export default function AdminAIPage() {
           max_messages_per_hour: settings.max_messages_per_hour,
           human_request_pause_hours: settings.human_request_pause_hours,
           schedule_json: settings.schedule_json as unknown as Json,
+          temperature: settings.temperature ?? null,
+          model_name: settings.model_name ?? null,
         })
-        .eq('id', settings.id);
+        .select('id')
+        .single();
 
       if (error) throw error;
       toast({ title: 'Configurações salvas!' });
@@ -506,6 +631,7 @@ export default function AdminAIPage() {
           message: testMessage,
           teamId: testTeamId || null,
           providerId: testProviderId || null,
+          workspaceId: activeTenant?.id || null,
         },
       });
 
@@ -531,6 +657,23 @@ export default function AdminAIPage() {
     if (logsFilter.provider !== 'all' && log.provider !== logsFilter.provider) return false;
     return true;
   });
+
+  const workspaceModelOptions = [
+    ...WORKSPACE_MODEL_OPTIONS,
+    ...providers
+      .map((provider) => ({
+        value: provider.model,
+        label: `${provider.provider.toUpperCase()} - ${provider.model}`,
+        hint: PROVIDER_INFO[provider.provider as keyof typeof PROVIDER_INFO]?.description || 'Modelo disponível no provedor configurado.',
+      }))
+      .filter((option, index, list) => list.findIndex((entry) => entry.value === option.value) === index),
+  ];
+
+  const resolvedWorkspaceModel =
+    settings?.model_name ||
+    providers.find((provider) => provider.active)?.model ||
+    'google/gemini-2.5-flash';
+  const resolvedWorkspaceTemperature = Number(settings?.temperature ?? 0.7);
 
   if (authLoading || roleLoading) {
     return (
@@ -598,6 +741,85 @@ export default function AdminAIPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label>Modelo do Workspace</Label>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="w-4 h-4 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              Escolha o modelo padrão usado por este workspace nas respostas automáticas.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <Select
+                        value={resolvedWorkspaceModel}
+                        onValueChange={(value) => settings && setSettings({ ...settings, model_name: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um modelo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {workspaceModelOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {workspaceModelOptions.find((option) => option.value === resolvedWorkspaceModel)?.hint || 'Modelo padrão para este cliente.'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 rounded-lg border p-4">
+                      <div className="flex items-center justify-between">
+                        <Label>Criatividade da IA</Label>
+                        <Badge variant="secondary">{resolvedWorkspaceTemperature.toFixed(1)}</Badge>
+                      </div>
+                      <Slider
+                        value={[resolvedWorkspaceTemperature]}
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        onValueChange={([value]) => settings && setSettings({ ...settings, temperature: value })}
+                      />
+                      <div className="flex justify-between text-[11px] text-muted-foreground">
+                        <span>0.0 Precisa</span>
+                        <span>1.0 Criativa</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {getTemperatureProfile(resolvedWorkspaceTemperature)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-lg border p-4">
+                    <div>
+                      <Label>Biblioteca de Prompts</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Use um preset como ponto de partida e depois ajuste para o tom do cliente.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {PROMPT_PRESETS.map((preset) => (
+                        <button
+                          key={preset.key}
+                          type="button"
+                          onClick={() => settings && setSettings({ ...settings, base_system_prompt: preset.prompt })}
+                          className="rounded-lg border bg-background p-3 text-left transition-colors hover:border-primary hover:bg-muted"
+                        >
+                          <div className="font-medium">{preset.label}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{preset.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label>Prompt Base</Label>
@@ -616,6 +838,9 @@ export default function AdminAIPage() {
                         <RotateCcw className="w-4 h-4 mr-2" />
                         Restaurar Padrão
                       </Button>
+                      <Badge variant="outline" className="font-normal">
+                        Workspace atual: {activeTenant?.name || 'Não selecionado'}
+                      </Badge>
                     </div>
                   </div>
 
@@ -635,7 +860,7 @@ export default function AdminAIPage() {
                       Variáveis Disponíveis
                     </h4>
                     <div className="flex flex-wrap gap-2">
-                      {['{{customer_name}}', '{{company_name}}', '{{agent_name}}', '{{team_name}}', '{{timezone}}', '{{business_hours}}', '{{policies}}'].map(v => (
+                      {['{{customer_name}}', '{{contact_name}}', '{{company_name}}', '{{agent_name}}', '{{team_name}}', '{{protocol_number}}', '{{timezone}}', '{{business_hours}}', '{{policies}}'].map(v => (
                         <Badge key={v} variant="secondary" className="font-mono text-xs">
                           {v}
                         </Badge>
@@ -1068,6 +1293,16 @@ export default function AdminAIPage() {
 
                   {testResult && (
                     <div className="space-y-4 pt-4 border-t">
+                      <div className="rounded-lg border bg-muted/40 p-4">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">Debug Mode</Badge>
+                          <p className="text-sm font-medium">Prompt enviado ao modelo</p>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Aqui você confere como as variáveis do workspace foram resolvidas antes da chamada ao LLM.
+                        </p>
+                      </div>
+
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="p-3 bg-muted rounded-lg">
                           <p className="text-xs text-muted-foreground">Provedor</p>

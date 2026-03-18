@@ -52,6 +52,7 @@ serve(async (req) => {
       .from('conversations')
       .select(`
         id,
+        workspace_id,
         protocol,
         status,
         priority,
@@ -138,11 +139,21 @@ serve(async (req) => {
       .eq('conversation_id', conversation_id)
       .single();
 
-    // Get Z-API settings
-    // First try to get from team, then global
+    // Get Z-API settings for the conversation workspace, with global fallback only if needed
     let zapiSettings = null;
-    
-    if (assignedAgent?.team_id) {
+    const workspaceId = conversation.workspace_id;
+
+    if (workspaceId) {
+      const { data: workspaceSettings } = await supabase
+        .from('zapi_settings')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .limit(1)
+        .maybeSingle();
+      zapiSettings = workspaceSettings;
+    }
+
+    if (!zapiSettings && assignedAgent?.team_id) {
       const { data: teamSettings } = await supabase
         .from('zapi_settings')
         .select('*')
@@ -151,7 +162,6 @@ serve(async (req) => {
       zapiSettings = teamSettings;
     }
 
-    // If no team settings, try to get global (null team_id)
     if (!zapiSettings) {
       const { data: globalSettings } = await supabase
         .from('zapi_settings')
@@ -307,6 +317,7 @@ serve(async (req) => {
       : `⚠️ Falha ao enviar notificação para o grupo: ${notificationUpdate.error_message}`;
 
     await supabase.from('messages').insert({
+      workspace_id: workspaceId,
       conversation_id: conversation_id,
       sender_type: 'agent',
       sender_id: null, // System message

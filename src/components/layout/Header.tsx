@@ -1,10 +1,13 @@
 import { useState } from 'react';
-import { MessageSquare, BarChart3, Settings, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket } from 'lucide-react';
+import { MessageSquare, BarChart3, Settings, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
+import { usePlatformAdmin } from '@/hooks/usePlatformAdmin';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useBillingOverview } from '@/hooks/useBillingOverview';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { EditProfileModal } from '@/components/profile/EditProfileModal';
 import { PRODUCT } from '@/config/product';
@@ -15,11 +18,13 @@ const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
   { path: '/calendar', label: 'Agenda', icon: Calendar, featureFlag: 'enableCalendar' as const },
   { path: '/sac', label: 'SAC', icon: Ticket, featureFlag: 'enableProtocols' as const },
-  { path: '/admin', label: 'Admin', icon: Settings, adminOnly: true },
   { path: '/admin/ai', label: 'IA', icon: Bot, adminOnly: true },
   { path: '/admin/zapi', label: 'Z-API', icon: Share2, adminOnly: true },
   { path: '/admin/integrations', label: 'Integrações', icon: Link2, adminOnly: true },
   { path: '/admin/contacts', label: 'Duplicados', icon: Contact, adminOnly: true },
+  { path: '/settings/team', label: 'Equipe', icon: Users, adminOnly: true },
+  { path: '/settings/billing', label: 'Plano', icon: CreditCard, adminOnly: true },
+  { path: '/super-admin/clients', label: 'Clientes', icon: Users, adminOnly: true, platformOnly: true },
 ];
 
 export function Header() {
@@ -27,9 +32,20 @@ export function Header() {
   const { signOut } = useAuth();
   const { profile, displayName, refetch } = useProfile();
   const { isAdmin } = useUserRole();
+  const { isPlatformAdmin } = usePlatformAdmin();
+  const { data: billingOverview } = useBillingOverview();
   const [showProfileModal, setShowProfileModal] = useState(false);
 
+  const usageRatio = billingOverview?.maxUsageRatio ?? 0;
+  const usageBadgeTone = usageRatio >= 1 ? 'destructive' : usageRatio >= 0.8 ? 'secondary' : 'outline';
+  const usageLabel = usageRatio >= 1
+    ? 'Limite'
+    : usageRatio >= 0.8
+      ? `Uso ${Math.round(usageRatio * 100)}%`
+      : null;
+
   const visibleNavItems = navItems.filter(item => {
+    if (item.platformOnly && !isPlatformAdmin) return false;
     // Filter by admin permission
     if (item.adminOnly && !isAdmin) return false;
     // Filter by feature flag
@@ -43,9 +59,9 @@ export function Header() {
         <div className="flex items-center gap-6">
           <Link to="/inbox" className="flex items-center gap-2">
             <div className="w-10 h-10">
-              <img src={logo} alt="G7" className="w-full h-full object-contain" />
+              <img src={logo} alt={PRODUCT.name} className="w-full h-full object-contain" />
             </div>
-            <span className="font-semibold text-foreground">Conectabot SaaS (NOVO)</span>
+            <span className="font-semibold text-foreground">{PRODUCT.name}</span>
           </Link>
 
           <nav className="flex items-center gap-1">
@@ -73,6 +89,13 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3">
+          {isAdmin && usageLabel && (
+            <Link to="/settings/billing">
+              <Badge variant={usageBadgeTone} className="cursor-pointer">
+                {usageLabel}
+              </Badge>
+            </Link>
+          )}
           <Button
             variant="ghost"
             size="sm"

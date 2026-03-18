@@ -17,6 +17,38 @@ serve(async (req) => {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const requireBillingAccess = async (workspaceId: string, actionType: string, quantity = 1) => {
+      const { data, error } = await supabase.rpc('can_perform_action', {
+        p_workspace_id: workspaceId,
+        p_action_type: actionType,
+        p_quantity: quantity,
+      });
+
+      if (error) {
+        throw new Error(`Falha ao validar billing: ${error.message}`);
+      }
+
+      const result = Array.isArray(data) ? data[0] : data;
+      if (!result?.allowed) {
+        const message = result?.reason === 'subscription_inactive'
+          ? 'Assinatura pendente. Regularize o pagamento para continuar usando.'
+          : 'Limite do plano atingido. Faça upgrade para continuar.';
+
+        return new Response(JSON.stringify({
+          error: message,
+          reason: result?.reason ?? 'billing_blocked',
+          plan_name: result?.plan_name ?? null,
+          usage: result?.current_usage ?? null,
+          limit: result?.usage_limit ?? null,
+        }), {
+          status: 402,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      return null;
+    };
     
     const { conversation_id, file_url, file_name, file_type, caption, sender_id } = await req.json();
     
@@ -34,6 +66,7 @@ serve(async (req) => {
       .from('conversations')
       .select(`
         id,
+        workspace_id,
         contacts (
           id,
           phone,
@@ -53,8 +86,12 @@ serve(async (req) => {
       });
     }
 
+    const workspaceId = (conversation as any).workspace_id;
     const contact = (conversation as any).contacts;
     const recipientPhone = contact.phone || contact.lid || contact.chat_lid;
+
+    const billingBlock = await requireBillingAccess(workspaceId, 'outbound_message', 1);
+    if (billingBlock) return billingBlock;
 
     if (!recipientPhone) {
       return new Response(JSON.stringify({ error: 'No valid recipient identifier' }), {
@@ -63,9 +100,17 @@ serve(async (req) => {
       });
     }
 
-    // Get Z-API credentials
-    const instanceId = Deno.env.get('ZAPI_INSTANCE_ID');
-    const token = Deno.env.get('ZAPI_TOKEN');
+    const { data: zapiSettings } = await supabase
+      .from('zapi_settings')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .limit(1)
+      .maybeSingle();
+
+    // Get Z-API credentials for the conversation workspace
+    const instanceId = zapiSettings?.zapi_instance_id || Deno.env.get('ZAPI_INSTANCE_ID');
+    const token = zapiSettings?.zapi_token || Deno.env.get('ZAPI_TOKEN');
+    const clientToken = zapiSettings?.zapi_security_token || Deno.env.get('ZAPI_CLIENT_TOKEN');
 
     if (!instanceId || !token) {
       console.error('Z-API credentials not configured');
@@ -114,7 +159,10 @@ serve(async (req) => {
 
     const zapiResponse = await fetch(zapiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(clientToken ? { 'Client-Token': clientToken } : {}),
+      },
       body: JSON.stringify(zapiPayload),
     });
 
@@ -132,14 +180,17 @@ serve(async (req) => {
     const { data: message, error: msgError } = await supabase
       .from('messages')
       .insert({
+        workspace_id: workspaceId,
         conversation_id,
         sender_type: 'agent',
         sender_id,
         message_type: messageType,
         content: caption || file_name || null,
         media_url: file_url,
-        whatsapp_message_id: zapiResult.messageId || zapiResult.zapiMessageId,
+        provider: 'zapi',
+        provider_message_id: zapiResult.messageId || zapiResult.zapiMessageId,
         sent_at: new Date().toISOString(),
+        direction: 'outbound',
       })
       .select()
       .single();
@@ -154,6 +205,12 @@ serve(async (req) => {
       .from('conversations')
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', conversation_id);
+
+    await supabase.rpc('record_usage', {
+      p_workspace_id: workspaceId,
+      p_metric_name: 'messages_sent',
+      p_quantity: 1,
+    });
 
     console.log('File message saved:', message.id);
 

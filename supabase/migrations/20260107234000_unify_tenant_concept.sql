@@ -10,6 +10,10 @@ DROP POLICY IF EXISTS "team_select_wa_instances" ON public.wa_instances;
 DROP POLICY IF EXISTS "team_insert_wa_instances" ON public.wa_instances;
 DROP POLICY IF EXISTS "team_update_wa_instances" ON public.wa_instances;
 DROP POLICY IF EXISTS "team_delete_wa_instances" ON public.wa_instances;
+DROP POLICY IF EXISTS "wa_instances_select" ON public.wa_instances;
+DROP POLICY IF EXISTS "wa_instances_insert" ON public.wa_instances;
+DROP POLICY IF EXISTS "wa_instances_update" ON public.wa_instances;
+DROP POLICY IF EXISTS "wa_instances_delete" ON public.wa_instances;
 
 CREATE POLICY "wa_instances_select"
 ON public.wa_instances FOR SELECT
@@ -50,6 +54,8 @@ WITH CHECK (
 -- Fix RLS for public.tenant_integrations
 DROP POLICY IF EXISTS "Users can view their own tenant integrations" ON public.tenant_integrations;
 DROP POLICY IF EXISTS "Admins can manage tenant integrations" ON public.tenant_integrations;
+DROP POLICY IF EXISTS "tenant_integrations_select" ON public.tenant_integrations;
+DROP POLICY IF EXISTS "tenant_integrations_all_admins" ON public.tenant_integrations;
 
 CREATE POLICY "tenant_integrations_select"
   ON public.tenant_integrations FOR SELECT

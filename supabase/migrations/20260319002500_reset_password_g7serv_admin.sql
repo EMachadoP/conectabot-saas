@@ -1,0 +1,3 @@
+-- Intentionally left blank.
+-- The password reset for the platform admin was executed directly in the remote environment
+-- and should not be stored in version control.

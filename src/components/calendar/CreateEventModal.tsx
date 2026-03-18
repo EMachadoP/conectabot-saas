@@ -145,7 +145,7 @@ export function CreateEventModal({ open, onOpenChange, onSuccess }: CreateEventM
             const { data: event, error: eventError } = await supabase
                 .from('calendar_events')
                 .insert({
-                    tenant_id: activeTenant.id,
+                    workspace_id: activeTenant.id,
                     title: values.title,
                     description: values.description,
                     start_at: values.start_at.toISOString(),
@@ -165,7 +165,7 @@ export function CreateEventModal({ open, onOpenChange, onSuccess }: CreateEventM
             const { data: job, error: jobError } = await supabase
                 .from('reminder_jobs')
                 .insert({
-                    tenant_id: activeTenant.id,
+                    workspace_id: activeTenant.id,
                     event_id: event.id,
                     first_fire_at: firstFireAt.toISOString(),
                     next_attempt_at: firstFireAt.toISOString(),
