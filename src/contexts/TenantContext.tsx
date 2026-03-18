@@ -50,7 +50,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
             const userTenants = memberData
                 ?.map(m => m.tenants)
-                .filter(Boolean) as Tenant[];
+                .filter((tenant): tenant is Tenant => Boolean(tenant) && tenant.is_active !== false) as Tenant[];
 
             setTenants(userTenants || []);
 

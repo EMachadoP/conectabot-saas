@@ -3244,6 +3244,10 @@ export type Database = {
         Returns: string
       }
       normalize_chat_id: { Args: { raw_chat_id: string }; Returns: string }
+      platform_archive_workspace: {
+        Args: { p_workspace_id: string }
+        Returns: undefined
+      }
       platform_create_demo_workspace: {
         Args: { p_name: string }
         Returns: {
@@ -3283,6 +3287,10 @@ export type Database = {
       }
       platform_reset_workspace_integrations: {
         Args: { p_workspace_id: string }
+        Returns: undefined
+      }
+      platform_start_workspace_trial: {
+        Args: { p_days?: number; p_plan_name?: string; p_workspace_id: string }
         Returns: undefined
       }
       record_usage: {

@@ -39,9 +39,14 @@ export default function SuperAdminClientsPage() {
   const [workspaces, setWorkspaces] = useState<WorkspaceOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [creatingDemo, setCreatingDemo] = useState(false);
+  const [archivingWorkspaceId, setArchivingWorkspaceId] = useState<string | null>(null);
   const [resettingWorkspaceId, setResettingWorkspaceId] = useState<string | null>(null);
+  const [trialWorkspaceId, setTrialWorkspaceId] = useState<string | null>(null);
+  const [trialDays, setTrialDays] = useState('5');
   const [demoName, setDemoName] = useState('Workspace Demo G7');
   const [workspaceToReset, setWorkspaceToReset] = useState<WorkspaceOverview | null>(null);
+  const [workspaceToArchive, setWorkspaceToArchive] = useState<WorkspaceOverview | null>(null);
+  const [workspaceToTrial, setWorkspaceToTrial] = useState<WorkspaceOverview | null>(null);
 
   const currentWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.workspace_id === activeTenant?.id) ?? null,
@@ -72,6 +77,7 @@ export default function SuperAdminClientsPage() {
   const handleCreateDemoWorkspace = async () => {
     setCreatingDemo(true);
     try {
+      const parsedDays = Number(trialDays);
       const { data, error } = await supabase.rpc('platform_create_demo_workspace', {
         p_name: demoName,
       });
@@ -84,10 +90,20 @@ export default function SuperAdminClientsPage() {
 
       const createdWorkspaceId = (data as { id?: string } | null)?.id;
 
+      if (createdWorkspaceId && Number.isFinite(parsedDays) && parsedDays > 0) {
+        const { error: trialError } = await supabase.rpc('platform_start_workspace_trial', {
+          p_workspace_id: createdWorkspaceId,
+          p_days: parsedDays,
+          p_plan_name: 'start',
+        });
+
+        if (trialError) throw trialError;
+      }
+
       toast({
         title: 'Workspace demo criado',
         description: createdWorkspaceId
-          ? 'O workspace já está disponível para uso e troca no contexto.'
+          ? `O workspace já está disponível para uso e troca no contexto${Number.isFinite(parsedDays) && parsedDays > 0 ? `, com ${parsedDays} dia(s) de teste` : ''}.`
           : 'O workspace demo foi criado com sucesso.',
       });
 
@@ -134,6 +150,82 @@ export default function SuperAdminClientsPage() {
     }
   };
 
+  const handleStartTrial = async () => {
+    if (!workspaceToTrial) return;
+
+    const parsedDays = Number(trialDays);
+    if (!Number.isFinite(parsedDays) || parsedDays < 1) {
+      toast({
+        variant: 'destructive',
+        title: 'Dias de teste inválidos',
+        description: 'Informe um número de dias maior que zero.',
+      });
+      return;
+    }
+
+    setTrialWorkspaceId(workspaceToTrial.workspace_id);
+    try {
+      const { error } = await supabase.rpc('platform_start_workspace_trial', {
+        p_workspace_id: workspaceToTrial.workspace_id,
+        p_days: parsedDays,
+        p_plan_name: 'start',
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Teste liberado',
+        description: `${workspaceToTrial.workspace_name} recebeu ${parsedDays} dia(s) de acesso em teste.`,
+      });
+
+      await fetchWorkspaces();
+      setWorkspaceToTrial(null);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao liberar teste',
+        description: error.message,
+      });
+    } finally {
+      setTrialWorkspaceId(null);
+    }
+  };
+
+  const handleArchiveWorkspace = async () => {
+    if (!workspaceToArchive) return;
+
+    setArchivingWorkspaceId(workspaceToArchive.workspace_id);
+    try {
+      const { error } = await supabase.rpc('platform_archive_workspace', {
+        p_workspace_id: workspaceToArchive.workspace_id,
+      });
+
+      if (error) throw error;
+
+      if (activeTenant?.id === workspaceToArchive.workspace_id) {
+        localStorage.removeItem('activeTenantId');
+        await refreshTenants();
+      }
+
+      await fetchWorkspaces();
+
+      toast({
+        title: 'Workspace arquivado',
+        description: `${workspaceToArchive.workspace_name} foi removido da carteira ativa.`,
+      });
+
+      setWorkspaceToArchive(null);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao arquivar workspace',
+        description: error.message,
+      });
+    } finally {
+      setArchivingWorkspaceId(null);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="p-6 space-y-6 overflow-auto h-full">
@@ -159,13 +251,25 @@ export default function SuperAdminClientsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Nome do demo</label>
-                <Input
-                  value={demoName}
-                  onChange={(event) => setDemoName(event.target.value)}
-                  placeholder="Workspace Demo G7"
-                />
+              <div className="grid gap-4 md:grid-cols-[1.7fr,0.7fr]">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Nome do demo</label>
+                  <Input
+                    value={demoName}
+                    onChange={(event) => setDemoName(event.target.value)}
+                    placeholder="Workspace Demo G7"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Dias de trial</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={trialDays}
+                    onChange={(event) => setTrialDays(event.target.value)}
+                    placeholder="5"
+                  />
+                </div>
               </div>
               <Button onClick={handleCreateDemoWorkspace} disabled={creatingDemo || !demoName.trim()}>
                 {creatingDemo ? (
@@ -283,18 +387,31 @@ export default function SuperAdminClientsPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setWorkspaceToReset(workspace)}
-                            disabled={resettingWorkspaceId === workspace.workspace_id}
-                          >
-                            {resettingWorkspaceId === workspace.workspace_id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-4 h-4 text-destructive" />
-                            )}
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setWorkspaceToTrial(workspace)}
+                              disabled={trialWorkspaceId === workspace.workspace_id}
+                            >
+                              {trialWorkspaceId === workspace.workspace_id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : null}
+                              Trial
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setWorkspaceToArchive(workspace)}
+                              disabled={archivingWorkspaceId === workspace.workspace_id}
+                            >
+                              {archivingWorkspaceId === workspace.workspace_id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              )}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -318,6 +435,52 @@ export default function SuperAdminClientsPage() {
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction onClick={handleResetWorkspace}>
                 Confirmar limpeza
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={Boolean(workspaceToTrial)} onOpenChange={(open) => !open && setWorkspaceToTrial(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Liberar período de teste?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Defina quantos dias de acesso em teste o workspace <strong>{workspaceToTrial?.workspace_name}</strong> deve receber
+                antes de exigir plano ativo.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Dias de trial</label>
+              <Input
+                type="number"
+                min={1}
+                value={trialDays}
+                onChange={(event) => setTrialDays(event.target.value)}
+                placeholder="5"
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleStartTrial}>
+                Liberar teste
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={Boolean(workspaceToArchive)} onOpenChange={(open) => !open && setWorkspaceToArchive(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Arquivar workspace?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Isso remove <strong>{workspaceToArchive?.workspace_name}</strong> da carteira ativa e desativa seus vínculos. Use
+                essa ação para apagar demos e workspaces de teste sem abrir o banco.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleArchiveWorkspace}>
+                Arquivar workspace
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
