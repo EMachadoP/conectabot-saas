@@ -68,12 +68,17 @@ export default function SuperAdminClientsPage() {
   const [trialWorkspaceId, setTrialWorkspaceId] = useState<string | null>(null);
   const [trialDays, setTrialDays] = useState('5');
   const [demoName, setDemoName] = useState('Workspace Demo G7');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'inactive'>('all');
   const [membersOpen, setMembersOpen] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [selectedWorkspaceMembers, setSelectedWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [workspaceToManage, setWorkspaceToManage] = useState<WorkspaceOverview | null>(null);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'admin' | 'agent'>('agent');
+  const [invitingMember, setInvitingMember] = useState(false);
   const [workspaceToReset, setWorkspaceToReset] = useState<WorkspaceOverview | null>(null);
   const [workspaceToArchive, setWorkspaceToArchive] = useState<WorkspaceOverview | null>(null);
   const [workspaceToTrial, setWorkspaceToTrial] = useState<WorkspaceOverview | null>(null);
@@ -82,6 +87,33 @@ export default function SuperAdminClientsPage() {
     () => workspaces.find((workspace) => workspace.workspace_id === activeTenant?.id) ?? null,
     [activeTenant?.id, workspaces],
   );
+
+  const filteredWorkspaces = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    return workspaces.filter((workspace) => {
+      const status = (workspace.subscription_status ?? '').toLowerCase();
+      const matchesStatus =
+        statusFilter === 'all'
+          ? true
+          : statusFilter === 'inactive'
+          ? !status || ['canceled', 'past_due', 'unpaid'].includes(status)
+          : status === statusFilter;
+
+      if (!matchesStatus) return false;
+
+      if (!query) return true;
+
+      return [
+        workspace.workspace_name,
+        workspace.workspace_slug,
+        workspace.owner_name,
+        workspace.owner_email,
+      ]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(query));
+    });
+  }, [searchTerm, statusFilter, workspaces]);
 
   const fetchWorkspaces = async () => {
     setLoading(true);
@@ -126,6 +158,47 @@ export default function SuperAdminClientsPage() {
     } finally {
       setMembersLoading(false);
     }
+  };
+
+  const handleInviteMember = async () => {
+    if (!workspaceToManage) return;
+
+    if (!inviteEmail.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Informe um e-mail',
+        description: 'Preencha o e-mail do usuário que será convidado.',
+      });
+      return;
+    }
+
+    setInvitingMember(true);
+    const { error } = await supabase.functions.invoke('invite-user', {
+      body: {
+        email: inviteEmail.trim(),
+        role: inviteRole,
+        workspace_id: workspaceToManage.workspace_id,
+      },
+    });
+    setInvitingMember(false);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao enviar convite',
+        description: error.message,
+      });
+      return;
+    }
+
+    toast({
+      title: 'Convite enviado',
+      description: `${inviteEmail.trim()} foi adicionado(a) ao cliente ${workspaceToManage.workspace_name}.`,
+    });
+    setInviteEmail('');
+    setInviteRole('agent');
+    await loadWorkspaceMembers(workspaceToManage);
+    await fetchWorkspaces();
   };
 
   const handleCreateDemoWorkspace = async () => {
@@ -351,10 +424,29 @@ export default function SuperAdminClientsPage() {
               Gerencie workspaces, crie demos limpas e resete integrações antigas sem abrir o banco.
             </p>
           </div>
-          <Button variant="outline" onClick={fetchWorkspaces} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Atualizar
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Buscar por cliente, slug ou e-mail"
+              className="w-[280px]"
+            />
+            <Select value={statusFilter} onValueChange={(value: 'all' | 'active' | 'trialing' | 'inactive') => setStatusFilter(value)}>
+              <SelectTrigger className="w-[190px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os status</SelectItem>
+                <SelectItem value="active">Ativos</SelectItem>
+                <SelectItem value="trialing">Em trial</SelectItem>
+                <SelectItem value="inactive">Sem assinatura</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={fetchWorkspaces} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.2fr,2fr]">
@@ -458,14 +550,14 @@ export default function SuperAdminClientsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {workspaces.length === 0 ? (
+                  {filteredWorkspaces.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
                         Nenhum workspace encontrado.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    workspaces.map((workspace) => (
+                    filteredWorkspaces.map((workspace) => (
                       <TableRow key={workspace.workspace_id}>
                         <TableCell>
                           <div>
@@ -621,6 +713,36 @@ export default function SuperAdminClientsPage() {
             </DialogHeader>
 
             <div className="space-y-4">
+              <div className="rounded-lg border p-4 space-y-4">
+                <div>
+                  <p className="font-medium">Convidar usuário</p>
+                  <p className="text-sm text-muted-foreground">
+                    Envie um convite direto para este cliente e defina a permissão inicial.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[1.6fr,0.8fr,0.6fr]">
+                  <Input
+                    type="email"
+                    placeholder="usuario@empresa.com"
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                  />
+                  <Select value={inviteRole} onValueChange={(value: 'admin' | 'agent') => setInviteRole(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Administrador</SelectItem>
+                      <SelectItem value="agent">Usuário</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handleInviteMember} disabled={invitingMember}>
+                    {invitingMember ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Convidar'}
+                  </Button>
+                </div>
+              </div>
+
               {membersLoading ? (
                 <div className="flex justify-center py-10">
                   <Loader2 className="w-8 h-8 animate-spin text-primary" />

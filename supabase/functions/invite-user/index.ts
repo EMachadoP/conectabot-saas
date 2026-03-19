@@ -93,25 +93,25 @@ serve(async (req) => {
       );
     }
 
-    const { data: membership, error: membershipError } = await supabaseAdmin
-      .from("tenant_members")
-      .select("tenant_id, role, is_active")
-      .eq("tenant_id", workspaceId)
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .maybeSingle();
+    const { data: canManage, error: manageError } = await supabaseAdmin.rpc(
+      "platform_can_manage_workspace",
+      {
+        p_workspace_id: workspaceId,
+        p_user_id: user.id,
+      },
+    );
 
-    if (membershipError) {
-      console.error("[invite-user] membership lookup failed", membershipError);
+    if (manageError) {
+      console.error("[invite-user] permission lookup failed", manageError);
       return new Response(
         JSON.stringify({ error: "Erro ao validar permissões do workspace" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    if (!membership || !["owner", "admin"].includes(membership.role ?? "")) {
+    if (!canManage) {
       return new Response(
-        JSON.stringify({ error: "Apenas owners e admins podem convidar membros" }),
+        JSON.stringify({ error: "Apenas administradores da plataforma ou do workspace podem convidar membros" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

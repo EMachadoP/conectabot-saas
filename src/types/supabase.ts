@@ -3248,6 +3248,10 @@ export type Database = {
         Args: { p_workspace_id: string }
         Returns: undefined
       }
+      platform_can_manage_workspace: {
+        Args: { p_user_id?: string; p_workspace_id: string }
+        Returns: boolean
+      }
       platform_create_demo_workspace: {
         Args: { p_name: string }
         Returns: {
