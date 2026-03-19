@@ -6,6 +6,35 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const normalizeRawIdentifier = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+};
+
+const isLidIdentifier = (value: string | null) => Boolean(value && value.endsWith('@lid'));
+
+const isGroupIdentifier = (value: string | null) => Boolean(value && value.endsWith('@g.us'));
+
+const extractRealPhone = (...candidates: unknown[]) => {
+  for (const candidate of candidates) {
+    const normalized = normalizeRawIdentifier(candidate);
+    if (!normalized || isLidIdentifier(normalized)) continue;
+
+    if (normalized.includes('@')) {
+      const [localPart, domain] = normalized.split('@');
+      if (domain === 'c.us' || domain === 's.whatsapp.net') {
+        return localPart || null;
+      }
+    }
+
+    const digitsOnly = normalized.replace(/\D/g, '');
+    if (digitsOnly) return digitsOnly;
+  }
+
+  return null;
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -79,13 +108,32 @@ serve(async (req) => {
     }
 
     // --- IDENTIFICAÇÃO LID-FIRST ---
-    const isGroup = Boolean(payload.isGroup || (payload.chatLid && payload.chatLid.includes('@g.us')) || (payload.chatId && payload.chatId.includes('@g.us')));
+    const rawChatIdentifier = normalizeRawIdentifier(
+      payload.chatLid || payload.chatId || payload.chat?.chatId || payload.phone || payload.senderPhone
+    );
+    const isGroup = Boolean(payload.isGroup || isGroupIdentifier(rawChatIdentifier));
     const fromMe = Boolean(payload.fromMe);
 
-    let chatLid = (payload.chatLid || payload.chatId || payload.chat?.chatId || payload.phone || payload.senderPhone)?.trim().toLowerCase();
+    const normalizeChatId = async (rawValue: string | null) => {
+      if (!rawValue) return null;
 
-    // Em chats privados, o chatLid é o ID do contato. Em grupos, usamos participantLid ou os campos de contato.
-    const contactLid = (payload.contact?.lid || payload.lid || payload.participantLid || (isGroup ? null : chatLid) || payload.senderPhone || payload.phone)?.trim().toLowerCase();
+      const { data, error } = await supabase.rpc('normalize_chat_id', {
+        raw_chat_id: rawValue,
+      });
+
+      if (error || !data) {
+        return rawValue;
+      }
+
+      return normalizeRawIdentifier(data) || rawValue;
+    };
+
+    let chatLid = await normalizeChatId(rawChatIdentifier);
+    let contactLid = await normalizeChatId(
+      normalizeRawIdentifier(
+        payload.contact?.lid || payload.lid || payload.participantLid || (isGroup ? null : rawChatIdentifier) || payload.senderPhone || payload.phone
+      )
+    );
 
     // Se chatLid ainda estiver vazio mas temos contactLid e não é grupo, chatLid = contactLid
     if (!chatLid && contactLid && !isGroup) {
@@ -100,24 +148,103 @@ serve(async (req) => {
     // Se for grupo, o "contato" da conversa é o próprio grupo
     const chatIdentifier = isGroup ? chatLid : contactLid;
     const chatName = payload.chatName || payload.contact?.name || payload.senderName || payload.pushName || chatIdentifier.split('@')[0];
+    const realPhone = extractRealPhone(
+      payload.contact?.phone,
+      payload.phone,
+      payload.senderPhone,
+      payload.chat?.phone,
+      payload.chatId,
+      payload.chatLid,
+    );
 
     // 4. Salvar/Atualizar Contato do Chat (Grupo ou Individual)
-    const { data: contact } = await supabase.from('contacts').upsert({
+    let { data: contact } = await supabase
+      .from('contacts')
+      .select('id, phone, lid, chat_lid')
+      .eq('workspace_id', workspaceId)
+      .eq('chat_lid', chatIdentifier)
+      .maybeSingle();
+
+    if (!contact && chatIdentifier) {
+      const contactByLid = await supabase
+        .from('contacts')
+        .select('id, phone, lid, chat_lid')
+        .eq('workspace_id', workspaceId)
+        .eq('lid', chatIdentifier)
+        .maybeSingle();
+
+      contact = contactByLid.data;
+    }
+
+    if (!contact && realPhone) {
+      const contactByPhone = await supabase
+        .from('contacts')
+        .select('id, phone, lid, chat_lid')
+        .eq('workspace_id', workspaceId)
+        .eq('phone', realPhone)
+        .maybeSingle();
+
+      contact = contactByPhone.data;
+    }
+
+    const contactPayload = {
       workspace_id: workspaceId,
       chat_lid: chatIdentifier,
-      lid: chatIdentifier,
+      lid: contact?.lid || (isGroup ? chatIdentifier : (isLidIdentifier(contactLid) ? contactLid : chatIdentifier)),
+      lid_collected_at: now,
+      lid_source: 'zapi-webhook',
+      phone: realPhone || contact?.phone || null,
       name: chatName,
+      whatsapp_display_name: payload.pushName || payload.contact?.name || payload.senderName || chatName,
       is_group: isGroup,
-      updated_at: now
-    }, { onConflict: 'chat_lid' }).select('id').single();
+      updated_at: now,
+    };
+
+    if (contact?.id) {
+      const updateResult = await supabase
+        .from('contacts')
+        .update(contactPayload)
+        .eq('id', contact.id)
+        .select('id')
+        .single();
+
+      contact = updateResult.data;
+    } else {
+      const insertResult = await supabase
+        .from('contacts')
+        .insert(contactPayload)
+        .select('id')
+        .single();
+
+      contact = insertResult.data;
+    }
 
     if (!contact) throw new Error('Falha ao processar contato do chat');
 
     // 5. Salvar/Atualizar Conversa (Lógica robusta para lidar com thread_key legada)
+    const conversationKey = chatLid;
     let { data: existingConv } = await supabase.from('conversations')
       .select('id')
-      .eq('chat_id', chatLid)
+      .eq('chat_id', conversationKey)
       .maybeSingle();
+
+    if (!existingConv) {
+      const legacyConv = await supabase.from('conversations')
+        .select('id')
+        .eq('thread_key', conversationKey)
+        .maybeSingle();
+
+      existingConv = legacyConv.data;
+    }
+
+    if (!existingConv) {
+      const contactConv = await supabase.from('conversations')
+        .select('id')
+        .eq('contact_id', contact.id)
+      .maybeSingle();
+
+      existingConv = contactConv.data;
+    }
 
     let conv: { id: string };
 
@@ -125,7 +252,9 @@ serve(async (req) => {
       const { data: updated, error: updateErr } = await supabase.from('conversations')
         .update({
           last_message_at: now,
-          thread_key: chatLid, // Sincroniza para o padrão novo
+          chat_id: conversationKey,
+          thread_key: conversationKey,
+          contact_id: contact.id,
           status: 'open'
         })
         .eq('id', existingConv.id)
@@ -139,8 +268,8 @@ serve(async (req) => {
         .upsert({
           workspace_id: workspaceId,
           contact_id: contact.id,
-          chat_id: chatLid,
-          thread_key: chatLid,
+          chat_id: conversationKey,
+          thread_key: conversationKey,
           status: 'open',
           last_message_at: now
         }, { onConflict: 'thread_key' })
@@ -178,7 +307,7 @@ serve(async (req) => {
     if (!content) content = "..."; // Fallback final
 
     const senderName = payload.contact?.name || payload.senderName || payload.pushName || contactLid.split('@')[0];
-    const senderPhone = (payload.contact?.phone || payload.phone || contactLid).split('@')[0];
+    const senderPhone = realPhone;
     const providerMsgId = payload.messageId || payload.id || crypto.randomUUID();
 
     // Verificação de duplicidade para evitar erro de PK
@@ -203,7 +332,7 @@ serve(async (req) => {
         content: content,
         provider: 'zapi',
         provider_message_id: providerMsgId,
-        chat_id: chatLid,
+        chat_id: conversationKey,
         direction: fromMe ? 'outbound' : 'inbound',
         sent_at: now,
         raw_payload: payload,

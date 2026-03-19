@@ -6,6 +6,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const normalizeRecipient = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+};
+
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
@@ -88,7 +94,7 @@ serve(async (req) => {
 
     const workspaceId = (conversation as any).workspace_id;
     const contact = (conversation as any).contacts;
-    const recipientPhone = contact.phone || contact.lid || contact.chat_lid;
+    const recipientPhone = normalizeRecipient(contact.chat_lid) || normalizeRecipient(contact.lid) || normalizeRecipient(contact.phone);
 
     const billingBlock = await requireBillingAccess(workspaceId, 'outbound_message', 1);
     if (billingBlock) return billingBlock;

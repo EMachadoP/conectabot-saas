@@ -7,6 +7,12 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+const normalizeRecipient = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -120,11 +126,11 @@ serve(async (req) => {
 
     // Determinar destinatário
     const contact = conv.contacts;
-    let recipient = conv.chat_id;
+    let recipient = normalizeRecipient(conv.chat_id);
 
     // Fallbacks para garantir envio
     if (!recipient && contact) {
-      recipient = contact.chat_lid || contact.phone || contact.lid;
+      recipient = normalizeRecipient(contact.chat_lid) || normalizeRecipient(contact.lid) || normalizeRecipient(contact.phone);
     }
 
     if (!recipient) throw new Error('O destinatário não possui um identificador válido (Phone/LID)');
