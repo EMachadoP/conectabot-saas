@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Loader2, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Shield, Sparkles, Trash2, Users } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/contexts/TenantContext';
@@ -28,6 +30,28 @@ type WorkspaceOverview = {
   created_at: string | null;
 };
 
+type MemberRole = 'owner' | 'admin' | 'agent';
+
+type WorkspaceMember = {
+  membership_id: string;
+  workspace_id: string;
+  user_id: string | null;
+  role: MemberRole;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+  profile_email: string | null;
+  profile_name: string | null;
+  profile_display_name: string | null;
+  avatar_url: string | null;
+};
+
+const memberRoleLabels: Record<MemberRole, string> = {
+  owner: 'Owner',
+  admin: 'Administrador',
+  agent: 'Usuário',
+};
+
 const formatDate = (value: string | null) => {
   if (!value) return '-';
   return new Date(value).toLocaleDateString('pt-BR');
@@ -44,6 +68,12 @@ export default function SuperAdminClientsPage() {
   const [trialWorkspaceId, setTrialWorkspaceId] = useState<string | null>(null);
   const [trialDays, setTrialDays] = useState('5');
   const [demoName, setDemoName] = useState('Workspace Demo G7');
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [selectedWorkspaceMembers, setSelectedWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [workspaceToManage, setWorkspaceToManage] = useState<WorkspaceOverview | null>(null);
+  const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [workspaceToReset, setWorkspaceToReset] = useState<WorkspaceOverview | null>(null);
   const [workspaceToArchive, setWorkspaceToArchive] = useState<WorkspaceOverview | null>(null);
   const [workspaceToTrial, setWorkspaceToTrial] = useState<WorkspaceOverview | null>(null);
@@ -73,6 +103,30 @@ export default function SuperAdminClientsPage() {
   useEffect(() => {
     fetchWorkspaces();
   }, []);
+
+  const loadWorkspaceMembers = async (workspace: WorkspaceOverview) => {
+    setMembersLoading(true);
+    setWorkspaceToManage(workspace);
+    setMembersOpen(true);
+
+    try {
+      const { data, error } = await supabase.rpc('platform_list_workspace_members', {
+        p_workspace_id: workspace.workspace_id,
+      });
+
+      if (error) throw error;
+
+      setSelectedWorkspaceMembers((data ?? []) as WorkspaceMember[]);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao carregar usuários',
+        description: error.message,
+      });
+    } finally {
+      setMembersLoading(false);
+    }
+  };
 
   const handleCreateDemoWorkspace = async () => {
     setCreatingDemo(true);
@@ -223,6 +277,67 @@ export default function SuperAdminClientsPage() {
       });
     } finally {
       setArchivingWorkspaceId(null);
+    }
+  };
+
+  const handleMemberRoleChange = async (member: WorkspaceMember, nextRole: 'admin' | 'agent') => {
+    if (!workspaceToManage) return;
+
+    setUpdatingMemberId(member.membership_id);
+    try {
+      const { error } = await supabase.rpc('platform_update_workspace_member_role', {
+        p_workspace_id: workspaceToManage.workspace_id,
+        p_membership_id: member.membership_id,
+        p_role: nextRole,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Permissão atualizada',
+        description: `${member.profile_email ?? member.profile_name ?? 'O usuário'} agora é ${memberRoleLabels[nextRole].toLowerCase()}.`,
+      });
+
+      await loadWorkspaceMembers(workspaceToManage);
+      await fetchWorkspaces();
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao atualizar permissão',
+        description: error.message,
+      });
+    } finally {
+      setUpdatingMemberId(null);
+    }
+  };
+
+  const handleRemoveMember = async (member: WorkspaceMember) => {
+    if (!workspaceToManage) return;
+
+    setRemovingMemberId(member.membership_id);
+    try {
+      const { error } = await supabase.rpc('platform_remove_workspace_member', {
+        p_workspace_id: workspaceToManage.workspace_id,
+        p_membership_id: member.membership_id,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Usuário removido',
+        description: `${member.profile_email ?? member.profile_name ?? 'O usuário'} perdeu acesso a este cliente.`,
+      });
+
+      await loadWorkspaceMembers(workspaceToManage);
+      await fetchWorkspaces();
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao remover usuário',
+        description: error.message,
+      });
+    } finally {
+      setRemovingMemberId(null);
     }
   };
 
@@ -391,6 +506,14 @@ export default function SuperAdminClientsPage() {
                             <Button
                               variant="outline"
                               size="sm"
+                              onClick={() => loadWorkspaceMembers(workspace)}
+                            >
+                              <Users className="w-4 h-4 mr-2" />
+                              Usuários
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
                               onClick={() => setWorkspaceToTrial(workspace)}
                               disabled={trialWorkspaceId === workspace.workspace_id}
                             >
@@ -485,6 +608,109 @@ export default function SuperAdminClientsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={membersOpen} onOpenChange={setMembersOpen}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Usuários do cliente</DialogTitle>
+              <DialogDescription>
+                {workspaceToManage
+                  ? `Gerencie acessos e permissões do workspace ${workspaceToManage.workspace_name}.`
+                  : 'Gerencie acessos e permissões deste cliente.'}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {membersLoading ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              ) : selectedWorkspaceMembers.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+                  Nenhum usuário encontrado para este cliente.
+                </div>
+              ) : (
+                <div className="rounded-lg border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Usuário</TableHead>
+                        <TableHead>E-mail</TableHead>
+                        <TableHead>Permissão</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedWorkspaceMembers.map((member) => {
+                        const isOwner = member.role === 'owner';
+                        const identity = member.profile_display_name || member.profile_name || member.profile_email || 'Usuário sem nome';
+
+                        return (
+                          <TableRow key={member.membership_id}>
+                            <TableCell className="font-medium">{identity}</TableCell>
+                            <TableCell>{member.profile_email || '-'}</TableCell>
+                            <TableCell className="w-[220px]">
+                              {isOwner ? (
+                                <Badge className="gap-1">
+                                  <Shield className="w-3 h-3" />
+                                  Owner
+                                </Badge>
+                              ) : (
+                                <Select
+                                  value={member.role}
+                                  onValueChange={(value: 'admin' | 'agent') => handleMemberRoleChange(member, value)}
+                                  disabled={updatingMemberId === member.membership_id}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="admin">Administrador</SelectItem>
+                                    <SelectItem value="agent">Usuário</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={member.is_active ? 'default' : 'secondary'}>
+                                {member.is_active ? 'ativo' : 'inativo'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {isOwner ? (
+                                <span className="text-xs text-muted-foreground">Owner fixo</span>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemoveMember(member)}
+                                  disabled={removingMemberId === member.membership_id}
+                                >
+                                  {removingMemberId === member.membership_id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                  )}
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMembersOpen(false)}>
+                Fechar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );

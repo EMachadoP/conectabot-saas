@@ -3266,6 +3266,22 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      platform_list_workspace_members: {
+        Args: { p_workspace_id: string }
+        Returns: {
+          avatar_url: string
+          created_at: string
+          is_active: boolean
+          membership_id: string
+          profile_display_name: string
+          profile_email: string
+          profile_name: string
+          role: string
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }[]
+      }
       platform_list_workspaces: {
         Args: never
         Returns: {
@@ -3285,12 +3301,24 @@ export type Database = {
           workspace_slug: string
         }[]
       }
+      platform_remove_workspace_member: {
+        Args: { p_membership_id: string; p_workspace_id: string }
+        Returns: undefined
+      }
       platform_reset_workspace_integrations: {
         Args: { p_workspace_id: string }
         Returns: undefined
       }
       platform_start_workspace_trial: {
         Args: { p_days?: number; p_plan_name?: string; p_workspace_id: string }
+        Returns: undefined
+      }
+      platform_update_workspace_member_role: {
+        Args: {
+          p_membership_id: string
+          p_role: string
+          p_workspace_id: string
+        }
         Returns: undefined
       }
       record_usage: {
