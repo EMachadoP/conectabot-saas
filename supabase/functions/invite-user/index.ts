@@ -130,6 +130,9 @@ serve(async (req) => {
       );
     }
 
+    let invitedUserId: string | null = null;
+    let invitationMode: "invite" | "existing_user" = "invite";
+
     const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
       email,
       {
@@ -143,14 +146,45 @@ serve(async (req) => {
     );
 
     if (inviteError || !inviteData.user) {
-      console.error("[invite-user] invite failed", inviteError);
-      return new Response(
-        JSON.stringify({ error: inviteError?.message || "Falha ao enviar convite" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+      const message = inviteError?.message?.toLowerCase() ?? "";
+      const isExistingUserError =
+        message.includes("already") ||
+        message.includes("registered") ||
+        message.includes("exists");
 
-    const invitedUserId = inviteData.user.id;
+      if (!isExistingUserError) {
+        console.error("[invite-user] invite failed", inviteError);
+        return new Response(
+          JSON.stringify({ error: inviteError?.message || "Falha ao enviar convite" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const { data: usersPage, error: usersError } = await supabaseAdmin.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000,
+      });
+
+      if (usersError) {
+        console.error("[invite-user] list users failed", usersError);
+        return new Response(
+          JSON.stringify({ error: "O e-mail já existe, mas falhou ao localizar o usuário para vincular ao cliente" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      invitedUserId = usersPage.users.find((listedUser) => listedUser.email?.toLowerCase() === email)?.id ?? null;
+      invitationMode = "existing_user";
+
+      if (!invitedUserId) {
+        return new Response(
+          JSON.stringify({ error: "O e-mail já existe, mas não foi possível localizar a conta para vincular ao cliente" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } else {
+      invitedUserId = inviteData.user.id;
+    }
 
     const { error: memberUpsertError } = await supabaseAdmin
       .from("tenant_members")
@@ -187,6 +221,7 @@ serve(async (req) => {
         workspace_id: workspace.id,
         workspace_name: workspace.name,
         role,
+        mode: invitationMode,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

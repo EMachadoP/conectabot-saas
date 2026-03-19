@@ -12,6 +12,7 @@ import { Loader2, Plus, RefreshCw, Shield, Sparkles, Trash2, Users } from 'lucid
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/contexts/TenantContext';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 
 type WorkspaceOverview = {
   workspace_id: string;
@@ -173,7 +174,7 @@ export default function SuperAdminClientsPage() {
     }
 
     setInvitingMember(true);
-    const { error } = await supabase.functions.invoke('invite-user', {
+    const { data, error } = await supabase.functions.invoke('invite-user', {
       body: {
         email: inviteEmail.trim(),
         role: inviteRole,
@@ -183,17 +184,31 @@ export default function SuperAdminClientsPage() {
     setInvitingMember(false);
 
     if (error) {
+      let description = error.message;
+
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const response = await error.context.json();
+          description = response?.error || description;
+        } catch {
+          // Keep generic description if the body isn't JSON
+        }
+      }
+
       toast({
         variant: 'destructive',
         title: 'Falha ao enviar convite',
-        description: error.message,
+        description,
       });
       return;
     }
 
     toast({
       title: 'Convite enviado',
-      description: `${inviteEmail.trim()} foi adicionado(a) ao cliente ${workspaceToManage.workspace_name}.`,
+      description:
+        data && typeof data === 'object' && 'mode' in data && data.mode === 'existing_user'
+          ? `${inviteEmail.trim()} já tinha conta e foi vinculado(a) ao cliente ${workspaceToManage.workspace_name}.`
+          : `${inviteEmail.trim()} foi adicionado(a) ao cliente ${workspaceToManage.workspace_name}.`,
     });
     setInviteEmail('');
     setInviteRole('agent');
