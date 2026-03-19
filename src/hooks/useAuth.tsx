@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { getAppUrl } from '@/lib/app-url';
 
 type WorkspaceRole = 'owner' | 'admin' | 'agent';
 
@@ -63,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, name: string, companyName: string) => {
-    const redirectUrl = `${window.location.origin}/`;
+    const redirectUrl = `${getAppUrl()}/`;
     
     const { error } = await supabase.auth.signUp({
       email,

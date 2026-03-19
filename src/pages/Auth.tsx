@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useToast } from '@/hooks/use-toast';
 import logo from '@/assets/logo.png';
 import { PRODUCT } from '@/config/product';
+import { getAppUrl } from '@/lib/app-url';
 
 const passwordSchema = z.string()
   .min(8, 'Senha deve ter pelo menos 8 caracteres')
@@ -139,7 +140,7 @@ export default function AuthPage() {
     setIsSendingReset(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-        redirectTo: `${window.location.origin}/auth`,
+        redirectTo: `${getAppUrl()}/auth`,
       });
 
       if (error) throw error;
