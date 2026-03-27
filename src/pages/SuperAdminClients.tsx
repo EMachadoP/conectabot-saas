@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Loader2, Plus, RefreshCw, Shield, Sparkles, Trash2, Users } from 'lucide-react';
+import { ArrowRightCircle, Loader2, Plus, RefreshCw, Shield, Sparkles, Trash2, Users } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/contexts/TenantContext';
@@ -60,10 +60,11 @@ const formatDate = (value: string | null) => {
 
 export default function SuperAdminClientsPage() {
   const { toast } = useToast();
-  const { activeTenant, refreshTenants, switchTenant } = useTenant();
+  const { activeTenant, refreshTenants, switchTenant, tenants } = useTenant();
   const [workspaces, setWorkspaces] = useState<WorkspaceOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [creatingDemo, setCreatingDemo] = useState(false);
+  const [accessingWorkspaceId, setAccessingWorkspaceId] = useState<string | null>(null);
   const [archivingWorkspaceId, setArchivingWorkspaceId] = useState<string | null>(null);
   const [resettingWorkspaceId, setResettingWorkspaceId] = useState<string | null>(null);
   const [trialWorkspaceId, setTrialWorkspaceId] = useState<string | null>(null);
@@ -87,6 +88,11 @@ export default function SuperAdminClientsPage() {
   const currentWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.workspace_id === activeTenant?.id) ?? null,
     [activeTenant?.id, workspaces],
+  );
+
+  const accessibleWorkspaceIds = useMemo(
+    () => new Set(tenants.map((tenant) => tenant.id)),
+    [tenants],
   );
 
   const filteredWorkspaces = useMemo(() => {
@@ -136,6 +142,29 @@ export default function SuperAdminClientsPage() {
   useEffect(() => {
     fetchWorkspaces();
   }, []);
+
+  const handleAccessWorkspace = async (workspace: WorkspaceOverview) => {
+    if (workspace.workspace_id === activeTenant?.id) {
+      toast({
+        title: 'Workspace já ativo',
+        description: `Você já está operando no contexto de ${workspace.workspace_name}.`,
+      });
+      return;
+    }
+
+    if (!accessibleWorkspaceIds.has(workspace.workspace_id)) {
+      toast({
+        variant: 'destructive',
+        title: 'Sem acesso operacional',
+        description: `Sua conta ainda não é membro do workspace ${workspace.workspace_name}. Adicione seu usuário como admin ou owner na equipe do cliente para operar o sistema por dentro.`,
+      });
+      return;
+    }
+
+    setAccessingWorkspaceId(workspace.workspace_id);
+    await switchTenant(workspace.workspace_id);
+    setAccessingWorkspaceId(null);
+  };
 
   const loadWorkspaceMembers = async (workspace: WorkspaceOverview) => {
     setMembersLoading(true);
@@ -572,7 +601,11 @@ export default function SuperAdminClientsPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredWorkspaces.map((workspace) => (
+                    filteredWorkspaces.map((workspace) => {
+                      const isCurrentWorkspace = workspace.workspace_id === activeTenant?.id;
+                      const canAccessWorkspace = accessibleWorkspaceIds.has(workspace.workspace_id);
+
+                      return (
                       <TableRow key={workspace.workspace_id}>
                         <TableCell>
                           <div>
@@ -611,6 +644,20 @@ export default function SuperAdminClientsPage() {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button
+                              variant={isCurrentWorkspace ? 'secondary' : 'outline'}
+                              size="sm"
+                              onClick={() => handleAccessWorkspace(workspace)}
+                              disabled={accessingWorkspaceId === workspace.workspace_id}
+                              title={canAccessWorkspace ? 'Entrar no contexto deste cliente' : 'Sua conta ainda não faz parte deste workspace'}
+                            >
+                              {accessingWorkspaceId === workspace.workspace_id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <ArrowRightCircle className="w-4 h-4 mr-2" />
+                              )}
+                              {isCurrentWorkspace ? 'No contexto' : 'Acessar'}
+                            </Button>
+                            <Button
                               variant="outline"
                               size="sm"
                               onClick={() => loadWorkspaceMembers(workspace)}
@@ -644,7 +691,8 @@ export default function SuperAdminClientsPage() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))
+                    );
+                  })
                   )}
                 </TableBody>
               </Table>

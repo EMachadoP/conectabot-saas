@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MessageSquare, BarChart3, Settings, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard } from 'lucide-react';
+import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -11,6 +11,16 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { EditProfileModal } from '@/components/profile/EditProfileModal';
 import { PRODUCT } from '@/config/product';
+import { useTenant } from '@/contexts/TenantContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import logo from '@/assets/logo.png';
 
 const navItems = [
@@ -34,7 +44,9 @@ export function Header() {
   const { isAdmin } = useUserRole();
   const { isPlatformAdmin } = usePlatformAdmin();
   const { data: billingOverview } = useBillingOverview();
+  const { activeTenant, tenants, switchTenant } = useTenant();
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(null);
 
   const usageRatio = billingOverview?.maxUsageRatio ?? 0;
   const usageBadgeTone = usageRatio >= 1 ? 'destructive' : usageRatio >= 0.8 ? 'secondary' : 'outline';
@@ -46,12 +58,17 @@ export function Header() {
 
   const visibleNavItems = navItems.filter(item => {
     if (item.platformOnly && !isPlatformAdmin) return false;
-    // Filter by admin permission
     if (item.adminOnly && !isAdmin) return false;
-    // Filter by feature flag
     if (item.featureFlag && !PRODUCT.flags[item.featureFlag]) return false;
     return true;
   });
+
+  const handleTenantChange = async (tenantId: string) => {
+    if (!tenantId || tenantId === activeTenant?.id) return;
+    setSwitchingTenantId(tenantId);
+    await switchTenant(tenantId);
+    setSwitchingTenantId(null);
+  };
 
   return (
     <>
@@ -75,8 +92,8 @@ export function Header() {
                     variant="ghost"
                     size="sm"
                     className={cn(
-                      "gap-2",
-                      isActive && "bg-muted text-foreground"
+                      'gap-2',
+                      isActive && 'bg-muted text-foreground'
                     )}
                   >
                     <Icon className="w-4 h-4" />
@@ -89,6 +106,37 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3">
+          {activeTenant && tenants.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="max-w-[240px] gap-2">
+                  <Building2 className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{activeTenant.name}</span>
+                  <ChevronsUpDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel>Workspace ativo</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup value={activeTenant.id} onValueChange={handleTenantChange}>
+                  {tenants.map((tenant) => (
+                    <DropdownMenuRadioItem
+                      key={tenant.id}
+                      value={tenant.id}
+                      disabled={switchingTenantId !== null}
+                      className="flex items-center gap-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{tenant.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{tenant.slug}</p>
+                      </div>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           {isAdmin && usageLabel && (
             <Link to="/settings/billing">
               <Badge variant={usageBadgeTone} className="cursor-pointer">
