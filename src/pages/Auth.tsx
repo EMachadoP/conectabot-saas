@@ -153,10 +153,17 @@ export default function AuthPage() {
       setShowForgotPassword(false);
       setForgotEmail('');
     } catch (error: any) {
+      const errorMessage = String(error?.message || '');
+      const isRateLimited =
+        errorMessage.toLowerCase().includes('rate limit') ||
+        errorMessage.toLowerCase().includes('security purposes');
+
       toast({
         variant: 'destructive',
         title: 'Erro',
-        description: error.message || 'Não foi possível enviar o email de recuperação.',
+        description: isRateLimited
+          ? 'Muitas tentativas de recuperação em pouco tempo. Aguarde alguns minutos antes de tentar novamente.'
+          : errorMessage || 'Não foi possível enviar o email de recuperação.',
       });
     } finally {
       setIsSendingReset(false);
