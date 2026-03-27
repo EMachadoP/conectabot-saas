@@ -10,6 +10,39 @@ const corsHeaders = {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_ROLES = new Set(["admin", "agent"]);
+const USERS_PAGE_SIZE = 1000;
+
+async function findUserByEmail(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  email: string,
+) {
+  let page = 1;
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage: USERS_PAGE_SIZE,
+    });
+
+    if (error) {
+      return { user: null, error };
+    }
+
+    const matchedUser = data.users.find(
+      (listedUser) => listedUser.email?.toLowerCase() === email,
+    );
+
+    if (matchedUser) {
+      return { user: matchedUser, error: null };
+    }
+
+    if (data.users.length < USERS_PAGE_SIZE) {
+      return { user: null, error: null };
+    }
+
+    page += 1;
+  }
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -133,57 +166,59 @@ serve(async (req) => {
     let invitedUserId: string | null = null;
     let invitationMode: "invite" | "existing_user" = "invite";
 
-    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+    const { user: existingUser, error: existingUserLookupError } = await findUserByEmail(
+      supabaseAdmin,
       email,
-      {
-        data: {
-          company_name: workspace.name,
-          workspace_id: workspace.id,
-          workspace_name: workspace.name,
-          workspace_role: role,
-        },
-      },
     );
 
-    if (inviteError || !inviteData.user) {
-      const message = inviteError?.message?.toLowerCase() ?? "";
-      const isExistingUserError =
-        message.includes("already") ||
-        message.includes("registered") ||
-        message.includes("exists");
+    if (existingUserLookupError) {
+      console.error("[invite-user] existing user lookup failed", existingUserLookupError);
+      return new Response(
+        JSON.stringify({ error: "Falhou ao verificar se o usuário já possui conta" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
-      if (!isExistingUserError) {
-        console.error("[invite-user] invite failed", inviteError);
-        return new Response(
-          JSON.stringify({ error: inviteError?.message || "Falha ao enviar convite" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      const { data: usersPage, error: usersError } = await supabaseAdmin.auth.admin.listUsers({
-        page: 1,
-        perPage: 1000,
-      });
-
-      if (usersError) {
-        console.error("[invite-user] list users failed", usersError);
-        return new Response(
-          JSON.stringify({ error: "O e-mail já existe, mas falhou ao localizar o usuário para vincular ao cliente" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      invitedUserId = usersPage.users.find((listedUser) => listedUser.email?.toLowerCase() === email)?.id ?? null;
+    if (existingUser) {
+      invitedUserId = existingUser.id;
       invitationMode = "existing_user";
-
-      if (!invitedUserId) {
-        return new Response(
-          JSON.stringify({ error: "O e-mail já existe, mas não foi possível localizar a conta para vincular ao cliente" }),
-          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
     } else {
-      invitedUserId = inviteData.user.id;
+      const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+        email,
+        {
+          data: {
+            company_name: workspace.name,
+            workspace_id: workspace.id,
+            workspace_name: workspace.name,
+            workspace_role: role,
+          },
+        },
+      );
+
+      if (inviteError || !inviteData.user) {
+        console.error("[invite-user] invite failed", inviteError);
+
+        const { user: fallbackExistingUser, error: fallbackLookupError } = await findUserByEmail(
+          supabaseAdmin,
+          email,
+        );
+
+        if (fallbackLookupError) {
+          console.error("[invite-user] fallback existing user lookup failed", fallbackLookupError);
+        }
+
+        if (fallbackExistingUser) {
+          invitedUserId = fallbackExistingUser.id;
+          invitationMode = "existing_user";
+        } else {
+          return new Response(
+            JSON.stringify({ error: inviteError?.message || "Falha ao enviar convite" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+      } else {
+        invitedUserId = inviteData.user.id;
+      }
     }
 
     const { error: memberUpsertError } = await supabaseAdmin

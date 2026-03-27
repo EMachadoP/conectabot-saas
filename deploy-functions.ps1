@@ -1,30 +1,35 @@
 # Deploy de Todas as Edge Functions
-# Execute este script quando fizer mudanças em qualquer Edge Function
+# Faz deploy dinamico de todas as pastas em supabase/functions que possuem index.ts
 
 Write-Host "🚀 Iniciando deploy de todas as Edge Functions..." -ForegroundColor Cyan
 Write-Host ""
 
-# Lista de todas as Edge Functions do projeto
-$functions = @(
-    "zapi-webhook",
-    "protocol-opened",
-    "ai-maybe-reply",
-    "assign-conversation",
-    "transcribe-audio",
-    "zapi-send-message",
-    "create-agent",
-    "group-resolution-handler"
-)
+$functionsRoot = Join-Path $PSScriptRoot "supabase\functions"
+
+if (-not (Test-Path $functionsRoot)) {
+    Write-Host "❌ Diretório de funções não encontrado: $functionsRoot" -ForegroundColor Red
+    exit 1
+}
+
+$functions = Get-ChildItem $functionsRoot -Directory |
+    Where-Object { Test-Path (Join-Path $_.FullName "index.ts") } |
+    Select-Object -ExpandProperty Name |
+    Sort-Object
+
+if (-not $functions -or $functions.Count -eq 0) {
+    Write-Host "⚠️  Nenhuma Edge Function encontrada para deploy." -ForegroundColor Yellow
+    exit 0
+}
 
 $success = 0
 $failed = 0
 
 foreach ($func in $functions) {
     Write-Host "📦 Deploying $func..." -ForegroundColor Yellow
-    
+
     try {
         npx supabase functions deploy $func
-        
+
         if ($LASTEXITCODE -eq 0) {
             Write-Host "✅ $func deployed successfully!" -ForegroundColor Green
             $success++
@@ -36,7 +41,7 @@ foreach ($func in $functions) {
         Write-Host "❌ Error deploying $func : $_" -ForegroundColor Red
         $failed++
     }
-    
+
     Write-Host ""
 }
 
