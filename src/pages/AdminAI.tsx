@@ -174,9 +174,9 @@ const AVAILABLE_MODELS = {
 const PROVIDER_INFO = {
   lovable: {
     name: 'Lovable AI',
-    description: 'Gateway integrado sem configuração extra',
-    pros: ['Sem custo adicional', 'Já configurado', 'Suporte Gemini + GPT'],
-    cons: ['Usa créditos do workspace'],
+    description: 'Gateway integrado via secret LOVABLE_API_KEY',
+    pros: ['Suporte Gemini + GPT', 'Centraliza o tráfego de IA no workspace'],
+    cons: ['Requer secret LOVABLE_API_KEY no Supabase', 'Usa créditos do workspace'],
     keyRef: 'LOVABLE_API_KEY',
   },
   openai: {
@@ -642,10 +642,14 @@ export default function AdminAIPage() {
       toast({ title: 'Teste concluído!' });
     } catch (error) {
       console.error('Test error:', error);
+      const message = error instanceof Error ? error.message : 'Falha ao testar IA';
+      const friendlyMessage = message.includes('LOVABLE_API_KEY') || message.includes('lovable')
+        ? 'O provedor Lovable está ativo, mas o secret LOVABLE_API_KEY não está configurado no Supabase. Configure esse secret ou ative outro provedor com chave válida.'
+        : message;
       toast({ 
         variant: 'destructive', 
         title: 'Erro no teste', 
-        description: error instanceof Error ? error.message : 'Falha ao testar IA' 
+        description: friendlyMessage,
       });
     } finally {
       setTesting(false);

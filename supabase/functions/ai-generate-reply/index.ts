@@ -63,6 +63,27 @@ Se o cliente pedir ajuda humana, informe que a equipe seguirá o atendimento.
 Nunca invente preços, prazos ou informações não confirmadas.`;
 }
 
+function getProviderSecretName(provider: { provider: string; key_ref?: string | null }) {
+  if (provider.key_ref) return provider.key_ref;
+  if (provider.provider === 'lovable') return 'LOVABLE_API_KEY';
+  if (provider.provider === 'openai') return 'OPENAI_API_KEY';
+  if (provider.provider === 'gemini') return 'GEMINI_API_KEY';
+  return '';
+}
+
+function providerSupportsModel(providerName: string, model: string) {
+  if (!model) return true;
+  const normalized = model.toLowerCase();
+
+  if (providerName === 'lovable') return true;
+  if (providerName === 'gemini') return normalized.includes('gemini');
+  if (providerName === 'openai') {
+    return normalized.includes('gpt') || normalized.includes('o1') || normalized.includes('o3') || normalized.includes('o4');
+  }
+
+  return false;
+}
+
 /**
  * Executes the create-protocol edge function
  */
@@ -395,22 +416,67 @@ Para registrar um problema, use SEMPRE a ferramenta 'create_protocol' IMEDIATAME
 NUNCA diga que registrou o protocolo sem chamar a ferramenta.
 NUNCA invente preços ou prazos.`;
 
-    const providerQuery = supabase
+    const { data: providerConfigs, error: providerConfigsError } = await supabase
       .from('ai_provider_configs')
       .select('*')
-      .limit(1);
+      .order('created_at', { ascending: true });
 
-    const { data: providerConfig } = rawBody.providerId
-      ? await providerQuery.eq('id', rawBody.providerId).maybeSingle()
-      : await providerQuery.eq('active', true).maybeSingle();
+    if (providerConfigsError) {
+      throw new Error(`Falha ao carregar provedores de IA: ${providerConfigsError.message}`);
+    }
 
-    if (!providerConfig) throw new Error('Nenhum provedor de IA ativo configurado');
-    const provider = providerConfig as any;
-    const selectedModel = workspaceSettings?.model_name || provider.model;
+    if (!providerConfigs?.length) throw new Error('Nenhum provedor de IA configurado');
+
+    const requestedProvider = rawBody.providerId
+      ? providerConfigs.find((config: any) => config.id === rawBody.providerId) ?? null
+      : null;
+    const activeProvider = providerConfigs.find((config: any) => config.active) ?? null;
+    const initialProvider = requestedProvider ?? activeProvider ?? providerConfigs[0];
+
+    if (!initialProvider) throw new Error('Nenhum provedor de IA disponivel');
+
+    const workspaceSelectedModel = typeof workspaceSettings?.model_name === 'string'
+      ? workspaceSettings.model_name
+      : '';
+    const desiredModel = workspaceSelectedModel || initialProvider.model || '';
+
+    const providerCandidates = providerConfigs
+      .map((config: any) => {
+        const secretName = getProviderSecretName(config);
+        const secretValue = secretName ? Deno.env.get(secretName) : undefined;
+        return {
+          config,
+          secretName,
+          secretValue,
+        };
+      })
+      .filter((candidate) => candidate.secretName && candidate.secretValue);
+
+    let selectedProviderEntry = providerCandidates.find(
+      (candidate) => candidate.config.id === initialProvider.id,
+    );
+
+    if (!selectedProviderEntry) {
+      selectedProviderEntry = providerCandidates.find((candidate) =>
+        providerSupportsModel(candidate.config.provider, desiredModel),
+      ) ?? providerCandidates[0];
+    }
+
+    if (!selectedProviderEntry) {
+      const expectedKeyRef = getProviderSecretName(initialProvider);
+      throw new Error(
+        initialProvider.provider === 'lovable'
+          ? 'Secret LOVABLE_API_KEY não configurado no Supabase para o provedor Lovable'
+          : `Chave de API não encontrada para ${initialProvider.provider}. Configure o secret ${expectedKeyRef}`
+      );
+    }
+
+    const provider = selectedProviderEntry.config as any;
+    const selectedModel = desiredModel && providerSupportsModel(provider.provider, desiredModel)
+      ? desiredModel
+      : provider.model;
     const selectedTemperature = Number(workspaceSettings?.temperature ?? provider.temperature) || 0.7;
-
-    const apiKey = Deno.env.get(provider.key_ref || (provider.provider === 'lovable' ? 'LOVABLE_API_KEY' : ''));
-    if (!apiKey) throw new Error(`Chave de API não encontrada para ${provider.provider}`);
+    const apiKey = selectedProviderEntry.secretValue!;
 
     // Tool definition (using create_protocol as name to avoid confusion)
     const protocolTool = [{
