@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Save, Loader2, Share2, Info, Activity, RefreshCw } from 'lucide-react';
+import { Save, Loader2, Share2, Info, Activity, RefreshCw, Copy, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -34,6 +34,7 @@ export default function AdminZAPIPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lastSignal, setLastSignal] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<'webhook' | null>(null);
   
   const [settings, setSettings] = useState<ZAPISettings>({
     id: '',
@@ -86,6 +87,19 @@ export default function AdminZAPIPage() {
       return () => clearInterval(interval);
     }
   }, [user, isAdmin]);
+
+  const webhookUrl = `${(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '')}/functions/v1/zapi-webhook`;
+
+  const handleCopy = async (value: string, field: 'webhook') => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(field);
+      toast({ title: 'Copiado', description: 'Valor copiado para a área de transferência.' });
+      window.setTimeout(() => setCopiedField(null), 2000);
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Erro ao copiar', description: error.message });
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -196,6 +210,48 @@ export default function AdminZAPIPage() {
                       value={settings.zapi_security_token || ''} 
                       onChange={(e) => setSettings({ ...settings, zapi_security_token: e.target.value })} 
                     />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-blue-500/30 bg-blue-500/5">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Info className="w-4 h-4" /> Webhook para configurar na Z-API
+                  </CardTitle>
+                  <CardDescription>
+                    Copie esta URL e cole nos campos de webhook da sua instância Z-API.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>URL do Webhook do Conectbot</Label>
+                    <div className="flex gap-2">
+                      <Input value={webhookUrl} readOnly />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleCopy(webhookUrl, 'webhook')}
+                      >
+                        {copiedField === 'webhook' ? (
+                          <CheckCircle2 className="w-4 h-4 mr-2" />
+                        ) : (
+                          <Copy className="w-4 h-4 mr-2" />
+                        )}
+                        {copiedField === 'webhook' ? 'Copiado' : 'Copiar'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border bg-background p-4 text-sm space-y-2">
+                    <p className="font-medium">Na Z-API, use essa mesma URL nestes campos:</p>
+                    <p>`Ao receber`</p>
+                    <p>`Receber status da mensagem`</p>
+                    <p>`Ao conectar`</p>
+                    <p>`Ao desconectar`</p>
+                    <p className="text-muted-foreground pt-2">
+                      O mínimo para começar é preencher `Ao receber`, mas o ideal é configurar os quatro para o painel acompanhar o sinal corretamente.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
