@@ -38,6 +38,8 @@ serve(async (req) => {
     }
 
     const { conversation_id, agent_id } = await req.json();
+    const nowIso = new Date().toISOString();
+    const pauseUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
     // Validar se o agente de destino existe e é ativo
     const { data: targetAgent } = await supabaseAdmin
@@ -50,16 +52,29 @@ serve(async (req) => {
       throw new Error("Agente de destino inválido ou inativo");
     }
 
-    // Executar atribuição e marcar como resolvida
+    const { data: conversation } = await supabaseAdmin
+      .from("conversations")
+      .select("id, unread_count")
+      .eq("id", conversation_id)
+      .single();
+
+    if (!conversation) {
+      throw new Error("Conversa não encontrada");
+    }
+
+    // Executar atribuição e transferir a pendência
     await supabaseAdmin
       .from("conversations")
       .update({
         assigned_to: agent_id,
-        assigned_at: new Date().toISOString(),
+        assigned_at: nowIso,
         assigned_by: user.id,
-        status: 'resolved', // Marca como resolvida ao atribuir
-        resolved_at: new Date().toISOString(),
-        resolved_by: user.id,
+        status: 'open',
+        resolved_at: null,
+        resolved_by: null,
+        human_control: true,
+        ai_paused_until: pauseUntil,
+        unread_count: Math.max(conversation.unread_count || 0, 1),
       })
       .eq("id", conversation_id);
 
@@ -70,8 +85,8 @@ serve(async (req) => {
       conversation_id,
       sender_type: "system",
       message_type: "system",
-      content: `👥 Atribuída para ${targetAgent.name} por ${actor?.name || "sistema"}`,
-      sent_at: new Date().toISOString(),
+      content: `👥 Atribuída para ${targetAgent.name} por ${actor?.name || "sistema"}. IA pausada por 30 minutos.`,
+      sent_at: nowIso,
     });
 
     return new Response(JSON.stringify({ success: true }), {

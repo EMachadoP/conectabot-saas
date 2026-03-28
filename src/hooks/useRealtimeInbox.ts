@@ -15,9 +15,10 @@ export interface Conversation {
 
 interface UseRealtimeInboxProps {
   onNewInboundMessage?: () => void;
+  userId?: string;
 }
 
-export function useRealtimeInbox({ onNewInboundMessage }: UseRealtimeInboxProps = {}) {
+export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInboxProps = {}) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const processedMessageIds = useRef<Set<string>>(new Set());
@@ -61,6 +62,25 @@ export function useRealtimeInbox({ onNewInboundMessage }: UseRealtimeInboxProps 
         { event: '*', schema: 'public', table: 'conversations' },
         (payload) => {
           console.log('[RealtimeInbox] Conversation record update');
+
+          if (payload.eventType === 'UPDATE' && userId) {
+            const previousConversation = payload.old as Partial<Conversation> | undefined;
+            const nextConversation = payload.new as Partial<Conversation> | undefined;
+
+            const unreadIncreased =
+              (nextConversation?.unread_count || 0) > (previousConversation?.unread_count || 0);
+            const newlyAssignedToCurrentUser =
+              nextConversation?.assigned_to === userId && previousConversation?.assigned_to !== userId;
+            const sharedInboxPending =
+              nextConversation?.assigned_to === null && unreadIncreased;
+            const minePending =
+              nextConversation?.assigned_to === userId && unreadIncreased;
+
+            if (newlyAssignedToCurrentUser || sharedInboxPending || minePending) {
+              onNewInboundMessage?.();
+            }
+          }
+
           fetchConversations();
         }
       )
@@ -73,10 +93,6 @@ export function useRealtimeInbox({ onNewInboundMessage }: UseRealtimeInboxProps 
 
           processedMessageIds.current.add(newMessage.id);
           console.log('[RealtimeInbox] New message incoming:', newMessage.id);
-
-          if (newMessage.sender_type === 'contact') {
-            onNewInboundMessage?.();
-          }
 
           fetchConversations();
 

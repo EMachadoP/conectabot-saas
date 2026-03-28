@@ -28,7 +28,8 @@ export default function InboxPage() {
 
   // Hook customizado para gerenciar a lista e realtime global
   const { conversations, loading: loadingConversations } = useRealtimeInbox({
-    onNewInboundMessage: playNotificationSound
+    onNewInboundMessage: playNotificationSound,
+    userId: user?.id,
   });
 
   // Hook para mensagens da conversa ativa
@@ -191,6 +192,7 @@ export default function InboxPage() {
         console.error('Erro ao atribuir agente:', error);
         alert(`Erro ao atribuir agente: ${error.message || 'Erro desconhecido'}`);
       } else {
+        await fetchActiveConversationDetails(activeConversationId);
         console.log('Agente atribuído com sucesso');
       }
     } catch (error: any) {
@@ -222,6 +224,8 @@ export default function InboxPage() {
                   onResolveConversation={handleResolveConversation}
                   onAssignAgent={handleAssignAgent}
                   aiMode={activeConvData?.ai_mode}
+                  aiPausedUntil={activeConvData?.ai_paused_until}
+                  assignedTo={activeConvData?.assigned_to}
                   humanControl={activeConvData?.human_control}
                   loading={loadingMessages}
                   currentUserId={user.id}
@@ -273,6 +277,8 @@ export default function InboxPage() {
                       onResolveConversation={handleResolveConversation}
                       onAssignAgent={handleAssignAgent}
                       aiMode={activeConvData?.ai_mode}
+                      aiPausedUntil={activeConvData?.ai_paused_until}
+                      assignedTo={activeConvData?.assigned_to}
                       humanControl={activeConvData?.human_control}
                       loading={loadingMessages}
                       currentUserId={user.id}

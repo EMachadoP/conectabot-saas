@@ -10,6 +10,7 @@ import { AIControlBar } from './AIControlBar';
 import { HumanActionBar } from './HumanActionBar';
 import { GenerateProtocolModal } from './GenerateProtocolModal';
 import { CondominiumChips } from './CondominiumSelector';
+import { ContactMemoryPanel } from './ContactMemoryPanel';
 import { useParticipantInfo } from '@/hooks/useParticipantInfo';
 import { useContactCondominiums } from '@/hooks/useContactCondominiums';
 import { toast } from 'sonner';
@@ -123,6 +124,13 @@ export function ChatArea(props: ChatAreaProps) {
           activeCondominiumSetBy={props.activeCondominiumSetBy}
           onIdentify={() => setIdentifyModalOpen(true)}
           onSelectCondominium={props.onSelectCondominium}
+        />
+      )}
+
+      {!contact.is_group && contact?.id && (
+        <ContactMemoryPanel
+          contact={contact}
+          currentUserId={props.currentUserId}
         />
       )}
 

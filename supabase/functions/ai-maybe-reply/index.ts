@@ -50,12 +50,30 @@ serve(async (req) => {
     // 2. Carregar dados da conversa e configurações
     const { data: conv } = await supabase
       .from('conversations')
-      .select('*, contacts(*)')
+      .select('id, workspace_id, contact_id, ai_mode, human_control, ai_paused_until, assigned_to, contacts(*), assigned_profile:assigned_to(name)')
       .eq('id', conversation_id)
       .single();
 
     if (!conv || conv.ai_mode === 'OFF') {
       return new Response(JSON.stringify({ success: false, reason: 'IA OFF' }));
+    }
+
+    const pausedUntil = conv.ai_paused_until ? new Date(conv.ai_paused_until) : null;
+    const isPauseActive = pausedUntil && pausedUntil.getTime() > Date.now();
+
+    if (isPauseActive) {
+      console.log('[ai-maybe-reply] IA pausada ate:', conv.ai_paused_until);
+      return new Response(JSON.stringify({ success: false, reason: 'AI paused' }));
+    }
+
+    if (conv.human_control && !isPauseActive) {
+      await supabase
+        .from('conversations')
+        .update({
+          human_control: false,
+          ai_paused_until: null,
+        })
+        .eq('id', conversation_id);
     }
 
     // 3. Checar papel do participante (Fornecedor)
@@ -76,15 +94,30 @@ serve(async (req) => {
     // 4. Buscar histórico de mensagens
     const { data: msgs } = await supabase
       .from('messages')
-      .select('content, sender_type')
+      .select('content, sender_type, sender_name, sent_at')
       .eq('conversation_id', conversation_id)
       .order('sent_at', { ascending: false })
-      .limit(10);
+      .limit(30);
 
     const messages = (msgs || []).reverse().map(m => ({
       role: m.sender_type === 'contact' ? 'user' : 'assistant',
       content: m.content || '',
     }));
+
+    const { data: lastAgentMessage } = await supabase
+      .from('messages')
+      .select('sender_id, sender_name, sent_at')
+      .eq('conversation_id', conversation_id)
+      .eq('sender_type', 'agent')
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: contactMemory } = await (supabase as any)
+      .from('contact_memory')
+      .select('contact_name, company_name, role_title, notes')
+      .eq('contact_id', conv.contact_id)
+      .maybeSingle();
 
     // 5. Montar contexto complementar do workspace/conversa
     let promptContext = '';
@@ -125,6 +158,34 @@ serve(async (req) => {
       promptContext += `\n4. Use essas informacoes diretamente ao criar protocolos.`;
     }
 
+    if (contactMemory) {
+      promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      promptContext += `\nMEMORIA ESTRUTURADA DO CONTATO`;
+      promptContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      if (contactMemory.contact_name) promptContext += `\nNome confirmado: ${contactMemory.contact_name}`;
+      if (contactMemory.company_name) promptContext += `\nEmpresa/condominio: ${contactMemory.company_name}`;
+      if (contactMemory.role_title) promptContext += `\nFuncao/cargo: ${contactMemory.role_title}`;
+      if (contactMemory.notes) promptContext += `\nObservacoes: ${contactMemory.notes}`;
+      promptContext += `\nUse esses dados para personalizar a resposta sem pedir novamente o que ja foi salvo.`;
+    }
+
+    const assignedAgentName = (conv.assigned_profile as any)?.name || null;
+    const fallbackAgentName = lastAgentMessage?.sender_name || null;
+    const preferredAgentName = assignedAgentName || fallbackAgentName;
+
+    if (preferredAgentName) {
+      promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      promptContext += `\nDIRECIONAMENTO PRIORITARIO`;
+      promptContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      promptContext += `\nEste contato deve ser priorizado para ${preferredAgentName}.`;
+      if (assignedAgentName) {
+        promptContext += `\nEssa conversa ja esta atribuida a ${assignedAgentName}.`;
+      } else {
+        promptContext += `\nUltimo agente humano que falou com esse contato: ${fallbackAgentName}.`;
+      }
+      promptContext += `\nSe o cliente retomar o assunto, sinalize continuidade com esse responsavel para encurtar o atendimento.`;
+    }
+
     // Add message variation instructions
     promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
     promptContext += `\nREGRAS DE VARIACAO DE MENSAGENS`;
@@ -135,6 +196,7 @@ serve(async (req) => {
     promptContext += `\n3. Reorganize as informacoes.`;
     promptContext += `\n4. Varie as saudacoes.`;
     promptContext += `\n5. Personalize o tom conforme o contexto.`;
+    promptContext += `\n6. Considere as ultimas 30 mensagens para manter o contexto antes de responder.`;
 
     // 5.5. Get participant_id for protocol creation
     const { data: participantData } = await supabase
