@@ -140,6 +140,38 @@ export default function AdminZAPIPage() {
   const isOnline = lastSignal && 
     (new Date().getTime() - new Date(lastSignal).getTime() < 120000);
 
+  const hasInstanceId = Boolean(settings.zapi_instance_id?.trim());
+  const hasToken = Boolean(settings.zapi_token?.trim());
+  const hasSecurityToken = Boolean(settings.zapi_security_token?.trim());
+  const credentialsReady = hasInstanceId && hasToken && hasSecurityToken;
+
+  const setupChecklist = [
+    {
+      label: 'Preencher ID da instância',
+      done: hasInstanceId,
+    },
+    {
+      label: 'Preencher token da instância',
+      done: hasToken,
+    },
+    {
+      label: 'Preencher Client Token',
+      done: hasSecurityToken,
+    },
+    {
+      label: 'Salvar as credenciais no Conectbot',
+      done: Boolean(settings.id) && credentialsReady,
+    },
+    {
+      label: 'Colar a URL do webhook na Z-API',
+      done: Boolean(lastSignal),
+    },
+    {
+      label: 'Enviar uma mensagem teste e validar sinal',
+      done: Boolean(lastSignal),
+    },
+  ];
+
   return (
     <AppLayout>
       <div className="p-6 space-y-6 overflow-auto h-full max-w-4xl mx-auto">
@@ -184,6 +216,30 @@ export default function AdminZAPIPage() {
             </Card>
 
             <div className="grid gap-6">
+              <Card className="border-border/70">
+                <CardHeader>
+                  <CardTitle>Configuração rápida</CardTitle>
+                  <CardDescription>
+                    O cliente precisa de duas coisas: preencher as credenciais da instância e copiar a URL do webhook para a Z-API.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border bg-muted/20 p-4 space-y-2">
+                    <p className="text-sm font-semibold">1. Dados que vêm da Z-API</p>
+                    <p className="text-sm text-muted-foreground">Copie da Z-API e preencha aqui no Conectbot:</p>
+                    <p className="text-sm">`ID da Instância`</p>
+                    <p className="text-sm">`Token`</p>
+                    <p className="text-sm">`Security Token (Client Token)`</p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/20 p-4 space-y-2">
+                    <p className="text-sm font-semibold">2. Dado que sai do Conectbot</p>
+                    <p className="text-sm text-muted-foreground">Copie a URL do webhook abaixo e cole na tela de webhooks da Z-API.</p>
+                    <p className="text-sm">Use a mesma URL em:</p>
+                    <p className="text-sm">`Ao receber`, `Receber status da mensagem`, `Ao conectar` e `Ao desconectar`</p>
+                  </div>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader><CardTitle>Instância Z-API</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
@@ -194,6 +250,9 @@ export default function AdminZAPIPage() {
                         value={settings.zapi_instance_id || ''} 
                         onChange={(e) => setSettings({ ...settings, zapi_instance_id: e.target.value })} 
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Exatamente o valor exibido como `ID da instância` na Z-API.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label>Token</Label>
@@ -202,6 +261,9 @@ export default function AdminZAPIPage() {
                         value={settings.zapi_token || ''} 
                         onChange={(e) => setSettings({ ...settings, zapi_token: e.target.value })} 
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Use o `Token da instância` informado pela Z-API.
+                      </p>
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -210,6 +272,9 @@ export default function AdminZAPIPage() {
                       value={settings.zapi_security_token || ''} 
                       onChange={(e) => setSettings({ ...settings, zapi_security_token: e.target.value })} 
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Esse campo corresponde ao `Client Token` usado pela Z-API para autenticar integrações.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -252,6 +317,20 @@ export default function AdminZAPIPage() {
                     <p className="text-muted-foreground pt-2">
                       O mínimo para começar é preencher `Ao receber`, mas o ideal é configurar os quatro para o painel acompanhar o sinal corretamente.
                     </p>
+                  </div>
+
+                  <div className="rounded-lg border bg-background p-4">
+                    <p className="text-sm font-medium mb-3">Checklist de ativação</p>
+                    <div className="space-y-2">
+                      {setupChecklist.map((item) => (
+                        <div key={item.label} className="flex items-center gap-2 text-sm">
+                          <CheckCircle2 className={`w-4 h-4 ${item.done ? 'text-green-600' : 'text-muted-foreground'}`} />
+                          <span className={item.done ? 'text-foreground' : 'text-muted-foreground'}>
+                            {item.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
