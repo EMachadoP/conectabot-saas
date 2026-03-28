@@ -146,15 +146,6 @@ const DAYS_OF_WEEK = [
 ];
 
 const AVAILABLE_MODELS = {
-  lovable: [
-    { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recomendado)' },
-    { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-    { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { value: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (Econômico)' },
-    { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
-    { value: 'openai/gpt-5', label: 'GPT-5 (Premium)' },
-    { value: 'openai/gpt-5-nano', label: 'GPT-5 Nano (Rápido)' },
-  ],
   openai: [
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Recomendado)' },
     { value: 'gpt-4o', label: 'GPT-4o' },
@@ -173,10 +164,10 @@ const AVAILABLE_MODELS = {
 
 const PROVIDER_INFO = {
   lovable: {
-    name: 'Lovable AI',
-    description: 'Gateway integrado via secret LOVABLE_API_KEY',
-    pros: ['Suporte Gemini + GPT', 'Centraliza o tráfego de IA no workspace'],
-    cons: ['Requer secret LOVABLE_API_KEY no Supabase', 'Usa créditos do workspace'],
+    name: 'Lovable AI (Legado)',
+    description: 'Configuração legada mantida apenas para compatibilidade.',
+    pros: ['Pode aparecer em logs ou registros antigos'],
+    cons: ['Não deve mais ser usado em novas configurações'],
     keyRef: 'LOVABLE_API_KEY',
   },
   openai: {
@@ -298,8 +289,8 @@ export default function AdminAIPage() {
 
   // Form states
   const [providerForm, setProviderForm] = useState({
-    provider: 'lovable' as string,
-    model: 'google/gemini-2.5-flash',
+    provider: 'gemini' as string,
+    model: 'gemini-2.5-flash',
     customModel: '',
     useCustomModel: false,
     temperature: 0.7,
@@ -512,15 +503,15 @@ export default function AdminAIPage() {
     } else {
       setEditingProvider(null);
       setProviderForm({
-        provider: 'lovable',
-        model: 'google/gemini-2.5-flash',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
         customModel: '',
         useCustomModel: false,
         temperature: 0.7,
         max_tokens: 1024,
         top_p: 1.0,
         active: false,
-        key_ref: '',
+        key_ref: 'GEMINI_API_KEY',
       });
     }
     setProviderDialogOpen(true);
@@ -644,7 +635,7 @@ export default function AdminAIPage() {
       console.error('Test error:', error);
       const message = error instanceof Error ? error.message : 'Falha ao testar IA';
       const friendlyMessage = message.includes('LOVABLE_API_KEY') || message.includes('lovable')
-        ? 'O provedor Lovable está ativo, mas o secret LOVABLE_API_KEY não está configurado no Supabase. Configure esse secret ou ative outro provedor com chave válida.'
+        ? 'Existe uma configuração legada apontando para Lovable. Remova esse provedor e deixe Gemini ou OpenAI como ativo.'
         : message;
       toast({ 
         variant: 'destructive', 
@@ -1119,7 +1110,7 @@ export default function AdminAIPage() {
                     {providers.map(provider => {
                       const providerInfo = PROVIDER_INFO[provider.provider as keyof typeof PROVIDER_INFO];
                       const expectedKeyRef = providerInfo?.keyRef;
-                      const hasCorrectKeyRef = provider.provider === 'lovable' || (provider.key_ref === expectedKeyRef);
+                      const hasCorrectKeyRef = provider.key_ref === expectedKeyRef;
                       
                       return (
                         <div key={provider.id} className="flex items-center justify-between p-4 border rounded-lg">
@@ -1383,7 +1374,6 @@ export default function AdminAIPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">Todos</SelectItem>
-                          <SelectItem value="lovable">Lovable</SelectItem>
                           <SelectItem value="openai">OpenAI</SelectItem>
                           <SelectItem value="gemini">Gemini</SelectItem>
                           <SelectItem value="system">Sistema</SelectItem>
@@ -1478,7 +1468,7 @@ export default function AdminAIPage() {
                       model: models?.[0]?.value || '',
                       customModel: '',
                       useCustomModel: false,
-                      key_ref: v === 'lovable' ? 'LOVABLE_API_KEY' : '',
+                      key_ref: v === 'gemini' ? 'GEMINI_API_KEY' : v === 'openai' ? 'OPENAI_API_KEY' : '',
                     });
                   }}
                 >
@@ -1486,9 +1476,8 @@ export default function AdminAIPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="lovable">Lovable AI (Recomendado)</SelectItem>
                     <SelectItem value="openai">OpenAI</SelectItem>
-                    <SelectItem value="gemini">Google Gemini</SelectItem>
+                    <SelectItem value="gemini">Google Gemini (Recomendado)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1533,30 +1522,28 @@ export default function AdminAIPage() {
                 </p>
               </div>
 
-              {providerForm.provider !== 'lovable' && (
-                <div className="space-y-2">
-                  <Label>Nome do Secret (env var)</Label>
-                  <Select
-                    value={providerForm.key_ref}
-                    onValueChange={(v) => setProviderForm({ ...providerForm, key_ref: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o secret" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {providerForm.provider === 'openai' && (
-                        <SelectItem value="OPENAI_API_KEY">OPENAI_API_KEY</SelectItem>
-                      )}
-                      {providerForm.provider === 'gemini' && (
-                        <SelectItem value="GEMINI_API_KEY">GEMINI_API_KEY</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Variável de ambiente configurada no Supabase Secrets
-                  </p>
-                </div>
-              )}
+              <div className="space-y-2">
+                <Label>Nome do Secret (env var)</Label>
+                <Select
+                  value={providerForm.key_ref}
+                  onValueChange={(v) => setProviderForm({ ...providerForm, key_ref: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o secret" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providerForm.provider === 'openai' && (
+                      <SelectItem value="OPENAI_API_KEY">OPENAI_API_KEY</SelectItem>
+                    )}
+                    {providerForm.provider === 'gemini' && (
+                      <SelectItem value="GEMINI_API_KEY">GEMINI_API_KEY</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Variável de ambiente configurada no Supabase Secrets
+                </p>
+              </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
