@@ -1,4 +1,4 @@
-import { CreditCard, Loader2, Sparkles, TicketPercent, Users, MessageSquare } from 'lucide-react';
+import { CreditCard, Loader2, RefreshCw, Sparkles, TicketPercent, Users, MessageSquare } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useBillingOverview } from '@/hooks/useBillingOverview';
 import { useTenant } from '@/contexts/TenantContext';
@@ -47,8 +47,19 @@ export default function BillingSettingsPage() {
   const { data, isLoading } = useBillingOverview();
   const [checkoutPlanId, setCheckoutPlanId] = useState<string | null>(null);
   const [couponCode, setCouponCode] = useState('');
+  const [isSyncingStripe, setIsSyncingStripe] = useState(false);
+  const [hasAttemptedAutoSync, setHasAttemptedAutoSync] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  const subscription = data?.subscription;
+  const currentPlan = subscription?.plans ?? null;
+  const normalizedCouponCode = couponCode.trim().toUpperCase();
+  const looksOutdated = Boolean(
+    activeTenant?.id &&
+    currentPlan?.id === 'start' &&
+    (subscription?.status === 'trialing' || subscription?.status === 'active'),
+  );
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
@@ -114,7 +125,70 @@ export default function BillingSettingsPage() {
     navigate(location.pathname, { replace: true });
   }, [activeTenant?.id, location.pathname, location.search, navigate, queryClient, toast]);
 
-  const normalizedCouponCode = couponCode.trim().toUpperCase();
+  const handleSyncStripeSubscription = async (silent = false) => {
+    if (!activeTenant?.id) {
+      if (!silent) {
+        toast({
+          variant: 'destructive',
+          title: 'Workspace não encontrado',
+          description: 'Selecione um workspace ativo antes de sincronizar a assinatura.',
+        });
+      }
+      return;
+    }
+
+    try {
+      setIsSyncingStripe(true);
+      const { data: result, error } = await supabase.functions.invoke('sync-stripe-subscription', {
+        body: { workspaceId: activeTenant.id },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!result?.synchronized) {
+        throw new Error(result?.error || 'Nenhuma assinatura elegível foi encontrada no Stripe');
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['billing-overview', activeTenant.id] });
+
+      if (!silent) {
+        toast({
+          title: 'Assinatura sincronizada',
+          description: 'O plano deste workspace foi atualizado com base no Stripe.',
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao sincronizar a assinatura no Stripe';
+      if (!silent) {
+        toast({
+          variant: 'destructive',
+          title: 'Erro ao sincronizar billing',
+          description: message,
+        });
+      } else {
+        console.error('Silent Stripe sync error:', error);
+      }
+    } finally {
+      setIsSyncingStripe(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!looksOutdated || hasAttemptedAutoSync || isLoading || isSyncingStripe) {
+      return;
+    }
+
+    setHasAttemptedAutoSync(true);
+    void handleSyncStripeSubscription(true);
+  }, [hasAttemptedAutoSync, isLoading, isSyncingStripe, looksOutdated]);
+
+  useEffect(() => {
+    if (!looksOutdated) {
+      setHasAttemptedAutoSync(false);
+    }
+  }, [looksOutdated, activeTenant?.id]);
 
   const handleCheckout = async (planId: string, isCurrent: boolean, hasStripePrice: boolean) => {
     if (isCurrent) {
@@ -185,9 +259,6 @@ export default function BillingSettingsPage() {
     );
   }
 
-  const subscription = data?.subscription;
-  const currentPlan = subscription?.plans ?? null;
-
   return (
     <AppLayout>
       <div className="h-full overflow-auto p-6">
@@ -226,6 +297,28 @@ export default function BillingSettingsPage() {
                     Ciclo atual até {new Date(subscription.current_period_end).toLocaleDateString('pt-BR')}
                   </p>
                 )}
+                <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                  Se o Stripe já confirmou o pagamento e esta tela ainda não mudou, o sistema tenta reconciliar sozinho. Se preferir, você pode forçar a sincronização abaixo.
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => handleSyncStripeSubscription(false)}
+                  disabled={isSyncingStripe || !activeTenant?.id}
+                >
+                  {isSyncingStripe ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Sincronizando com Stripe...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Sincronizar assinatura Stripe
+                    </>
+                  )}
+                </Button>
               </CardContent>
             </Card>
           </div>
@@ -334,7 +427,7 @@ export default function BillingSettingsPage() {
                     </div>
                     <div>
                       <div className="font-medium text-foreground">Próxima etapa</div>
-                      <p>Checkout e webhook Stripe já estão conectados ao fluxo de upgrade.</p>
+                      <p>Checkout, webhook e sincronização manual já estão conectados ao fluxo de upgrade.</p>
                     </div>
                   </CardContent>
                 </Card>

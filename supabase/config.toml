@@ -91,3 +91,6 @@ verify_jwt = false
 [functions.confirm-checkout-session]
 verify_jwt = false
 
+[functions.sync-stripe-subscription]
+verify_jwt = false
+
