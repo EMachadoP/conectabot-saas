@@ -54,10 +54,38 @@ export default function BillingSettingsPage() {
     const searchParams = new URLSearchParams(location.search);
     const isSuccess = searchParams.get('success') === 'true';
     const isCanceled = searchParams.get('canceled') === 'true';
+    const sessionId = searchParams.get('session_id');
 
     if (!isSuccess && !isCanceled) {
       return;
     }
+
+    const syncBillingState = async () => {
+      if (!isSuccess || !activeTenant?.id || !sessionId) {
+        return;
+      }
+
+      try {
+        const { data: syncResult, error: syncError } = await supabase.functions.invoke('confirm-checkout-session', {
+          body: {
+            workspaceId: activeTenant.id,
+            sessionId,
+          },
+        });
+
+        if (syncError) {
+          throw syncError;
+        }
+
+        if (syncResult?.synchronized) {
+          queryClient.invalidateQueries({ queryKey: ['billing-overview', activeTenant.id] });
+        }
+      } catch (error) {
+        console.error('Billing sync error:', error);
+      }
+    };
+
+    void syncBillingState();
 
     if (isSuccess) {
       queryClient.invalidateQueries({ queryKey: ['billing-overview', activeTenant?.id] });

@@ -139,7 +139,7 @@ serve(async (req) => {
     }
 
     const origin = req.headers.get("origin") || Deno.env.get("SITE_URL") || "http://localhost:5173";
-    const successUrl = `${origin}/settings/billing?success=true`;
+    const successUrl = `${origin}/settings/billing?success=true&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${origin}/settings/billing?canceled=true`;
 
     const session = await stripe.checkout.sessions.create({
@@ -185,5 +185,6 @@ serve(async (req) => {
     });
   }
 });
+
 
 
