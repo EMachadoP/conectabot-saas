@@ -1,10 +1,13 @@
-import { CreditCard, Loader2, Sparkles, Users, MessageSquare } from 'lucide-react';
+import { CreditCard, Loader2, Sparkles, TicketPercent, Users, MessageSquare } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useBillingOverview } from '@/hooks/useBillingOverview';
 import { useTenant } from '@/contexts/TenantContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UsageStats } from '@/components/billing/UsageStats';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -41,6 +44,7 @@ export default function BillingSettingsPage() {
   const { toast } = useToast();
   const { data, isLoading } = useBillingOverview();
   const [checkoutPlanId, setCheckoutPlanId] = useState<string | null>(null);
+  const [couponCode, setCouponCode] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -70,6 +74,8 @@ export default function BillingSettingsPage() {
 
     navigate(location.pathname, { replace: true });
   }, [location.pathname, location.search, navigate, toast]);
+
+  const normalizedCouponCode = couponCode.trim().toUpperCase();
 
   const handleCheckout = async (planId: string, isCurrent: boolean, hasStripePrice: boolean) => {
     if (isCurrent) {
@@ -104,6 +110,7 @@ export default function BillingSettingsPage() {
         body: {
           workspaceId: activeTenant.id,
           planId,
+          couponCode: normalizedCouponCode || undefined,
           returnUrl: `${window.location.origin}/settings/billing`,
         },
       });
@@ -196,89 +203,153 @@ export default function BillingSettingsPage() {
             ))}
           </section>
 
-          <section className="grid gap-4 lg:grid-cols-[1.3fr,0.7fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle>Comparativo de Planos</CardTitle>
-                <CardDescription>
-                  Escolha o nível de operação ideal para o seu volume de atendimento.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-3">
-                {data?.plans.map((plan) => {
-                  const isCurrent = plan.id === currentPlan?.id;
-                  return (
-                    <div
-                      key={plan.id}
-                      className={`rounded-xl border p-4 ${isCurrent ? 'border-primary bg-primary/5' : 'bg-card'}`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-lg font-semibold capitalize">{plan.name}</div>
-                        {isCurrent && <Badge>Atual</Badge>}
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {plan.description || 'Plano configurado para o workspace.'}
-                      </p>
-                      <div className="mt-4 text-2xl font-bold">
-                        {formatPrice(plan.price_cents, plan.billing_interval)}
-                      </div>
-                      <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <MessageSquare className="h-4 w-4" />
-                          {plan.max_messages ? `${plan.max_messages.toLocaleString('pt-BR')} mensagens/mês` : 'Mensagens ilimitadas'}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4" />
-                          {plan.max_members ? `${plan.max_members} membros` : 'Membros ilimitados'}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-4 w-4" />
-                          {plan.ai_enabled
-                            ? `${plan.max_ai_tokens?.toLocaleString('pt-BR') ?? 'IA liberada'} tokens de IA`
-                            : 'IA desabilitada'}
-                        </div>
-                      </div>
-                      <Button
-                        className="mt-5 w-full"
-                        variant={isCurrent ? 'outline' : 'default'}
-                        disabled={checkoutPlanId === plan.id}
-                        onClick={() => handleCheckout(plan.id, isCurrent, Boolean(plan.stripe_price_id))}
-                      >
-                        {checkoutPlanId === plan.id
-                          ? 'Abrindo checkout...'
-                          : isCurrent
-                            ? 'Plano em uso'
-                            : 'Fazer upgrade'}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+          <Tabs defaultValue="plans" className="space-y-6">
+            <TabsList>
+              <TabsTrigger value="plans">Planos</TabsTrigger>
+              <TabsTrigger value="coupon">Cupom de desconto</TabsTrigger>
+            </TabsList>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Leituras do Paywall</CardTitle>
-                <CardDescription>
-                  O backend já bloqueia envio e IA quando a assinatura fica pendente ou o limite estoura.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 text-sm text-muted-foreground">
-                <div>
-                  <div className="font-medium text-foreground">Mensagens</div>
-                  <p>Envio de texto e arquivo já conta consumo automaticamente.</p>
-                </div>
-                <div>
-                  <div className="font-medium text-foreground">IA</div>
-                  <p>Respostas com IA registram tokens e quantidade de replies por workspace.</p>
-                </div>
-                <div>
-                  <div className="font-medium text-foreground">Próxima etapa</div>
-                  <p>Conectar `create-checkout-session` e `billing-webhook` para upgrade real via Stripe ou Asaas.</p>
-                </div>
-              </CardContent>
-            </Card>
-          </section>
+            <TabsContent value="plans" className="space-y-6">
+              <section className="grid gap-4 lg:grid-cols-[1.3fr,0.7fr]">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Comparativo de Planos</CardTitle>
+                    <CardDescription>
+                      Escolha o nível de operação ideal para o seu volume de atendimento.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-3">
+                    {data?.plans.map((plan) => {
+                      const isCurrent = plan.id === currentPlan?.id;
+                      return (
+                        <div
+                          key={plan.id}
+                          className={`rounded-xl border p-4 ${isCurrent ? 'border-primary bg-primary/5' : 'bg-card'}`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-lg font-semibold capitalize">{plan.name}</div>
+                            {isCurrent && <Badge>Atual</Badge>}
+                          </div>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {plan.description || 'Plano configurado para o workspace.'}
+                          </p>
+                          <div className="mt-4 text-2xl font-bold">
+                            {formatPrice(plan.price_cents, plan.billing_interval)}
+                          </div>
+                          <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                            <div className="flex items-center gap-2">
+                              <MessageSquare className="h-4 w-4" />
+                              {plan.max_messages ? `${plan.max_messages.toLocaleString('pt-BR')} mensagens/mês` : 'Mensagens ilimitadas'}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4" />
+                              {plan.max_members ? `${plan.max_members} membros` : 'Membros ilimitados'}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="h-4 w-4" />
+                              {plan.ai_enabled
+                                ? `${plan.max_ai_tokens?.toLocaleString('pt-BR') ?? 'IA liberada'} tokens de IA`
+                                : 'IA desabilitada'}
+                            </div>
+                          </div>
+                          {normalizedCouponCode && !isCurrent && (
+                            <div className="mt-4 rounded-lg border border-dashed border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                              Cupom preparado para o checkout: <strong>{normalizedCouponCode}</strong>
+                            </div>
+                          )}
+                          <Button
+                            className="mt-5 w-full"
+                            variant={isCurrent ? 'outline' : 'default'}
+                            disabled={checkoutPlanId === plan.id}
+                            onClick={() => handleCheckout(plan.id, isCurrent, Boolean(plan.stripe_price_id))}
+                          >
+                            {checkoutPlanId === plan.id
+                              ? 'Abrindo checkout...'
+                              : isCurrent
+                                ? 'Plano em uso'
+                                : normalizedCouponCode
+                                  ? 'Fechar pedido com cupom'
+                                  : 'Fazer upgrade'}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Leituras do Paywall</CardTitle>
+                    <CardDescription>
+                      O backend já bloqueia envio e IA quando a assinatura fica pendente ou o limite estoura.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm text-muted-foreground">
+                    <div>
+                      <div className="font-medium text-foreground">Mensagens</div>
+                      <p>Envio de texto e arquivo já conta consumo automaticamente.</p>
+                    </div>
+                    <div>
+                      <div className="font-medium text-foreground">IA</div>
+                      <p>Respostas com IA registram tokens e quantidade de replies por workspace.</p>
+                    </div>
+                    <div>
+                      <div className="font-medium text-foreground">Próxima etapa</div>
+                      <p>Checkout e webhook Stripe já estão conectados ao fluxo de upgrade.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </section>
+            </TabsContent>
+
+            <TabsContent value="coupon" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <TicketPercent className="h-5 w-5 text-primary" />
+                    <CardTitle>Cupom de desconto</CardTitle>
+                  </div>
+                  <CardDescription>
+                    Informe um cupom promocional para aplicar no checkout e fechar o pedido com desconto.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+                    <div className="space-y-2">
+                      <Label htmlFor="coupon-code">Código do cupom</Label>
+                      <Input
+                        id="coupon-code"
+                        value={couponCode}
+                        onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                        placeholder="Ex: FECHAR10"
+                      />
+                    </div>
+                    <Button type="button" variant="outline" onClick={() => setCouponCode('')}>
+                      Limpar cupom
+                    </Button>
+                  </div>
+
+                  <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                    {normalizedCouponCode ? (
+                      <>
+                        O cupom <strong className="text-foreground">{normalizedCouponCode}</strong> será enviado ao Stripe ao clicar em um plano na aba <strong className="text-foreground">Planos</strong>.
+                      </>
+                    ) : (
+                      <>
+                        Nenhum cupom informado. Se existir um cupom válido no Stripe, preencha aqui antes de abrir o checkout.
+                      </>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    <p>O código é validado no backend antes de abrir o checkout.</p>
+                    <p>Se o cupom estiver inválido, expirado ou inativo, o sistema bloqueia o pedido e mostra o erro.</p>
+                    <p>Mesmo com cupom aplicado, o checkout do Stripe continua permitindo promoção quando habilitada.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </AppLayout>

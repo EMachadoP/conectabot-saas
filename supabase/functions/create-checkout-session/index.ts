@@ -1,6 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "npm:stripe@17.7.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,6 +51,7 @@ serve(async (req) => {
     const body = await req.json();
     const workspaceId = String(body.workspaceId || "");
     const planId = String(body.planId || "");
+    const couponCode = String(body.couponCode || "").trim();
 
     if (!workspaceId || !planId) {
       return new Response(JSON.stringify({ error: "workspaceId e planId são obrigatórios" }), {
@@ -119,6 +120,24 @@ serve(async (req) => {
       httpClient: Stripe.createFetchHttpClient(),
     });
 
+    let promotionCodeId: string | undefined;
+    if (couponCode) {
+      const promotionCodes = await stripe.promotionCodes.list({
+        code: couponCode,
+        active: true,
+        limit: 1,
+      });
+
+      promotionCodeId = promotionCodes.data[0]?.id;
+
+      if (!promotionCodeId) {
+        return new Response(JSON.stringify({ error: "Cupom inválido ou indisponível" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const origin = req.headers.get("origin") || Deno.env.get("SITE_URL") || "http://localhost:5173";
     const successUrl = `${origin}/settings/billing?success=true`;
     const cancelUrl = `${origin}/settings/billing?canceled=true`;
@@ -140,13 +159,16 @@ serve(async (req) => {
         workspace_id: workspaceId,
         plan_id: plan.id,
         requested_by: user.id,
+        coupon_code: couponCode || "",
       },
       subscription_data: {
         metadata: {
           workspace_id: workspaceId,
           plan_id: plan.id,
+          coupon_code: couponCode || "",
         },
       },
+      discounts: promotionCodeId ? [{ promotion_code: promotionCodeId }] : undefined,
       allow_promotion_codes: true,
     });
 
