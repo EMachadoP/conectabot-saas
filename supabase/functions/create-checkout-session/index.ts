@@ -144,6 +144,7 @@ serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
+      payment_method_types: ["card"],
       customer: subscription?.stripe_customer_id || undefined,
       customer_email: subscription?.stripe_customer_id ? undefined : user.email,
       line_items: [
@@ -184,3 +185,5 @@ serve(async (req) => {
     });
   }
 });
+
+
