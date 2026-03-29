@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 function formatPrice(priceCents: number, interval: string) {
   const value = priceCents / 100;
@@ -42,6 +43,7 @@ function getStatusLabel(status: string | undefined) {
 export default function BillingSettingsPage() {
   const { activeTenant } = useTenant();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data, isLoading } = useBillingOverview();
   const [checkoutPlanId, setCheckoutPlanId] = useState<string | null>(null);
   const [couponCode, setCouponCode] = useState('');
@@ -58,9 +60,18 @@ export default function BillingSettingsPage() {
     }
 
     if (isSuccess) {
+      queryClient.invalidateQueries({ queryKey: ['billing-overview', activeTenant?.id] });
+
+      const retries = [1500, 4000, 8000, 15000];
+      retries.forEach((delay) => {
+        window.setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['billing-overview', activeTenant?.id] });
+        }, delay);
+      });
+
       toast({
         title: 'Assinatura confirmada!',
-        description: 'Bem-vindo ao próximo nível. Seus limites serão atualizados automaticamente.',
+        description: 'Pagamento concluído. Estamos atualizando o plano deste workspace automaticamente.',
       });
     }
 
@@ -73,7 +84,7 @@ export default function BillingSettingsPage() {
     }
 
     navigate(location.pathname, { replace: true });
-  }, [location.pathname, location.search, navigate, toast]);
+  }, [activeTenant?.id, location.pathname, location.search, navigate, queryClient, toast]);
 
   const normalizedCouponCode = couponCode.trim().toUpperCase();
 
