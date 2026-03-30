@@ -424,11 +424,28 @@ serve(async (req) => {
       } else {
         // Standard text/image handling
         console.log('[Webhook] Triggering AI reply for:', conv.id);
-        await fetch(`${supabaseUrl}/functions/v1/ai-maybe-reply`, {
+        const aiTriggerResponse = await fetch(`${supabaseUrl}/functions/v1/ai-maybe-reply`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}` },
           body: JSON.stringify({ conversation_id: conv.id }),
-        }).catch(err => console.error('[Webhook] Failed to trigger AI reply:', err));
+        }).catch(err => {
+          console.error('[Webhook] Failed to trigger AI reply:', err);
+          return null;
+        });
+
+        if (aiTriggerResponse && !aiTriggerResponse.ok) {
+          const triggerError = await aiTriggerResponse.text();
+          console.error('[Webhook] ai-maybe-reply returned error:', triggerError);
+          await supabase.from('ai_logs').insert({
+            status: 'error',
+            input_excerpt: JSON.stringify({ conversation_id: conv.id }),
+            error_message: `ai-maybe-reply trigger failed: ${triggerError}`,
+            model: 'webhook-debug',
+            provider: 'zapi',
+            conversation_id: conv.id,
+            created_at: now
+          });
+        }
       }
     }
 

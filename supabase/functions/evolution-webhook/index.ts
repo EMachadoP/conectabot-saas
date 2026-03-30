@@ -171,7 +171,7 @@ serve(async (req) => {
             await supabase.rpc('increment_unread_count', { conv_id: conv.id });
 
             // Save Message
-            await supabase.from('messages').insert({
+            const { data: insertedMessage, error: messageError } = await supabase.from('messages').insert({
                 workspace_id: workspaceId,
                 conversation_id: conv.id,
                 sender_type: 'contact',
@@ -185,7 +185,34 @@ serve(async (req) => {
                 direction: 'inbound',
                 sent_at: now,
                 raw_payload: payload
-            });
+            }).select('id').single();
+
+            if (messageError) throw messageError;
+
+            if (!isGroup && insertedMessage?.id) {
+                const aiTriggerResponse = await fetch(`${supabaseUrl}/functions/v1/ai-maybe-reply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+                    body: JSON.stringify({ conversation_id: conv.id }),
+                }).catch(err => {
+                    console.error('[EVO-WEBHOOK] Failed to trigger AI reply:', err);
+                    return null;
+                });
+
+                if (aiTriggerResponse && !aiTriggerResponse.ok) {
+                    const triggerError = await aiTriggerResponse.text();
+                    console.error('[EVO-WEBHOOK] ai-maybe-reply returned error:', triggerError);
+                    await supabase.from('ai_logs').insert({
+                        status: 'error',
+                        input_excerpt: JSON.stringify({ conversation_id: conv.id }),
+                        error_message: `ai-maybe-reply trigger failed: ${triggerError}`,
+                        model: 'evolution-webhook-debug',
+                        provider: 'evolution',
+                        conversation_id: conv.id,
+                        created_at: now
+                    });
+                }
+            }
         }
 
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });

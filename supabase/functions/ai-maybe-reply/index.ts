@@ -44,6 +44,12 @@ serve(async (req) => {
 
     if (checkLatest && checkLatest.id !== initialId) {
       console.log('[ai-maybe-reply] Debounce: Nova mensagem detectada. Abortando.');
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'ai-maybe-reply',
+        status: 'skipped',
+        error_message: 'Debounced',
+      });
       return new Response(JSON.stringify({ success: false, reason: 'Debounced' }));
     }
 
@@ -55,6 +61,13 @@ serve(async (req) => {
       .single();
 
     if (!conv || conv.ai_mode === 'OFF') {
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'ai-maybe-reply',
+        conversation_id: conversation_id,
+        status: 'skipped',
+        error_message: 'IA OFF',
+      });
       return new Response(JSON.stringify({ success: false, reason: 'IA OFF' }));
     }
 
@@ -63,6 +76,13 @@ serve(async (req) => {
 
     if (isPauseActive) {
       console.log('[ai-maybe-reply] IA pausada ate:', conv.ai_paused_until);
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'ai-maybe-reply',
+        conversation_id: conversation_id,
+        status: 'skipped',
+        error_message: `AI paused until ${conv.ai_paused_until}`,
+      });
       return new Response(JSON.stringify({ success: false, reason: 'AI paused' }));
     }
 
@@ -87,6 +107,13 @@ serve(async (req) => {
       const participant = participantState.participants as any;
       if (participant.role_type === 'fornecedor') {
         console.log('[ai-maybe-reply] Bloqueando resposta automática para Fornecedor');
+        await supabase.from('ai_logs').insert({
+          provider: 'system',
+          model: 'ai-maybe-reply',
+          conversation_id: conversation_id,
+          status: 'skipped',
+          error_message: 'Role: fornecedor',
+        });
         return new Response(JSON.stringify({ success: false, reason: 'Role: fornecedor' }));
       }
     }
@@ -225,6 +252,18 @@ serve(async (req) => {
       }),
     });
 
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'ai-maybe-reply',
+        conversation_id: conversation_id,
+        status: 'error',
+        error_message: `ai-generate-reply failed: ${errorText}`,
+      });
+      throw new Error(`ai-generate-reply failed: ${errorText}`);
+    }
+
     const aiData = await aiResponse.json();
     if (!aiData.text) throw new Error('IA não gerou texto');
 
@@ -244,10 +283,32 @@ serve(async (req) => {
       }),
     });
 
+    await supabase.from('ai_logs').insert({
+      provider: aiData.provider || 'system',
+      model: aiData.model || 'unknown',
+      conversation_id: conversation_id,
+      status: 'success',
+      output_text: aiData.text,
+      tokens_in: aiData.tokens_in || 0,
+      tokens_out: aiData.tokens_out || 0,
+      latency_ms: aiData.latency_ms || null,
+    });
+
     return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
     console.error('[ai-maybe-reply] Erro:', error);
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'ai-maybe-reply',
+        status: 'error',
+        error_message: error.message,
+      });
+    } catch (_) {}
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
