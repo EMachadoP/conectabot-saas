@@ -60,6 +60,7 @@ export function ChatArea(props: ChatAreaProps) {
   const { contact, messages, conversationId, loading, isMobile } = props;
   const [identifyModalOpen, setIdentifyModalOpen] = useState(false);
   const [protocolModalOpen, setProtocolModalOpen] = useState(false);
+  const [participantHeaderRefreshKey, setParticipantHeaderRefreshKey] = useState(0);
 
   const { participant, contactInfo, displayNameType, refetch: refetchParticipant } =
     useParticipantInfo(contact?.id, conversationId ?? undefined);
@@ -121,6 +122,7 @@ export function ChatArea(props: ChatAreaProps) {
 
       {!contact.is_group && (
         <ParticipantHeader
+          refreshKey={participantHeaderRefreshKey}
           contactId={contact.id}
           phone={contact.phone}
           whatsappDisplayName={contactInfo?.whatsapp_display_name || contact.whatsapp_display_name}
@@ -191,7 +193,10 @@ export function ChatArea(props: ChatAreaProps) {
           tenantId={contact.tenant_id ?? contact.workspace_id ?? null}
           contactName={contact.name ?? null}
           existingParticipant={participant}
-          onSaved={refetchParticipant}
+          onSaved={() => {
+            void refetchParticipant();
+            setParticipantHeaderRefreshKey((current) => current + 1);
+          }}
         />
       )}
 

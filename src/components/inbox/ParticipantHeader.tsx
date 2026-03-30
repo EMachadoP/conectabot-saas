@@ -28,6 +28,7 @@ interface Condominium {
 }
 
 interface ParticipantHeaderProps {
+  refreshKey?: number;
   contactId?: string | null;
   phone?: string | null;
   whatsappDisplayName?: string | null;
@@ -44,6 +45,7 @@ interface ParticipantHeaderProps {
 }
 
 export function ParticipantHeader({
+  refreshKey = 0,
   contactId,
   phone,
   whatsappDisplayName,
@@ -92,7 +94,7 @@ export function ParticipantHeader({
     return () => {
       cancelled = true;
     };
-  }, [contactId]);
+  }, [contactId, refreshKey]);
 
   return (
     <div className="bg-muted/50 border-b border-border px-4 py-2">
