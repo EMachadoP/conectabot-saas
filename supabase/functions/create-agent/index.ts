@@ -10,6 +10,37 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_WORKSPACE_ROLES = new Set(['admin', 'agent']);
 
+const findExistingAuthUserByEmail = async (
+  supabaseAdmin: ReturnType<typeof createClient>,
+  email: string,
+) => {
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const users = data?.users ?? [];
+    const existingUser = users.find((candidate) => candidate.email?.toLowerCase() === email);
+    if (existingUser) {
+      return existingUser;
+    }
+
+    if (users.length < perPage) {
+      return null;
+    }
+
+    page += 1;
+  }
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -126,21 +157,44 @@ serve(async (req) => {
       });
     }
 
-    const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name },
-    });
+    let authUser = await findExistingAuthUserByEmail(supabaseAdmin, email);
+    let reusedExistingUser = Boolean(authUser);
 
-    if (createError) {
-      return new Response(JSON.stringify({ error: createError.message }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    if (!authUser) {
+      const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { name },
       });
+
+      if (createError || !userData.user) {
+        return new Response(JSON.stringify({ error: createError?.message || 'Falha ao criar usuário' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      authUser = userData.user;
+      reusedExistingUser = false;
+    } else {
+      const { error: updateExistingUserError } = await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
+        password,
+        user_metadata: {
+          ...(authUser.user_metadata ?? {}),
+          name,
+        },
+      });
+
+      if (updateExistingUserError) {
+        return new Response(JSON.stringify({ error: `Usuário já existe, mas a senha não pôde ser atualizada: ${updateExistingUserError.message}` }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
-    const userId = userData.user.id;
+    const userId = authUser.id;
 
     if (workspace_id) {
       const { error: profileError } = await supabaseAdmin
@@ -212,6 +266,7 @@ serve(async (req) => {
       user_id: userId,
       workspace_id,
       workspace_role: workspace_id ? workspace_role : null,
+      reused_existing_user: reusedExistingUser,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

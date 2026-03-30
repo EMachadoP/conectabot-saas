@@ -229,7 +229,7 @@ export default function TeamSettingsPage() {
     }
 
     setCreatingDirectUser(true);
-    const { error } = await supabase.functions.invoke('create-agent', {
+    const { data, error } = await supabase.functions.invoke('create-agent', {
       body: {
         name: directUserName.trim(),
         email: directUserEmail.trim().toLowerCase(),
@@ -250,8 +250,10 @@ export default function TeamSettingsPage() {
     }
 
     toast({
-      title: 'Usuário cadastrado',
-      description: `${directUserEmail.trim()} já pode entrar com a senha definida agora.`,
+      title: data?.reused_existing_user ? 'Usuário vinculado ao workspace' : 'Usuário cadastrado',
+      description: data?.reused_existing_user
+        ? `${directUserEmail.trim()} já existia e agora foi vinculado ao workspace com a senha atualizada.`
+        : `${directUserEmail.trim()} já pode entrar com a senha definida agora.`,
     });
 
     setDirectCreateOpen(false);
