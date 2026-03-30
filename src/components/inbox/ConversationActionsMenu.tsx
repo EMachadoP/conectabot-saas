@@ -38,6 +38,7 @@ import {
 interface Profile {
   id: string;
   name: string;
+  email?: string | null;
 }
 
 interface Team {

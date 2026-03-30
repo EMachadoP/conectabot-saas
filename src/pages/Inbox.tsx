@@ -25,7 +25,7 @@ export default function InboxPage() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversationIdParam || null);
   const [activeContact, setActiveContact] = useState<any>(null);
   const [activeConvData, setActiveConvData] = useState<any>(null);
-  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string; email?: string | null }[]>([]);
   const [replyTarget, setReplyTarget] = useState<any | null>(null);
 
   const { conversations, loading: loadingConversations, markConversationAsRead } = useRealtimeInbox({
@@ -126,11 +126,20 @@ export default function InboxPage() {
 
       const { data } = await supabase
         .from('profiles')
-        .select('id, name')
+        .select('id, name, display_name, email')
         .order('name');
 
       if (data) {
-        setAgents(data);
+        setAgents(
+          data.map((profile: any) => ({
+            id: profile.id,
+            name:
+              profile.display_name?.trim() ||
+              profile.name?.trim() ||
+              (typeof profile.email === 'string' ? profile.email.split('@')[0] : 'Sem nome'),
+            email: profile.email ?? null,
+          }))
+        );
       }
     };
 
