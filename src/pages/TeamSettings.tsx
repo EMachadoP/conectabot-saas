@@ -23,6 +23,7 @@ interface WorkspaceMemberRow {
   id: string | null;
   user_id: string | null;
   workspace_id: string | null;
+  tenant_id?: string | null;
   role: string | null;
   is_active: boolean | null;
   created_at: string | null;
@@ -102,9 +103,9 @@ export default function TeamSettingsPage() {
     setLoading(true);
 
     const { data: workspaceMembers, error: membersError } = await supabase
-      .from('workspace_members')
+      .from('tenant_members')
       .select('*')
-      .eq('workspace_id', activeTenant.id)
+      .eq('tenant_id', activeTenant.id)
       .order('created_at', { ascending: true });
 
     if (membersError) {
@@ -142,6 +143,7 @@ export default function TeamSettingsPage() {
     setMembers(
       (workspaceMembers ?? []).map((member) => ({
         ...member,
+        workspace_id: member.tenant_id ?? activeTenant.id,
         profile: member.user_id ? profilesById[member.user_id] ?? null : null,
         status: member.user_id && profilesById[member.user_id] ? 'active' : 'pending',
       })),
