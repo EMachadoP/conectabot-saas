@@ -31,6 +31,7 @@ interface AISettings {
   tenant_id?: string;
   enabled_global: boolean;
   timezone: string;
+  agent_display_name?: string | null;
   base_system_prompt: string;
   system_prompt?: string | null;
   model_name?: string | null;
@@ -352,6 +353,7 @@ export default function AdminAIPage() {
           tenant_id: activeTenant.id,
           enabled_global: false,
           timezone: 'America/Fortaleza',
+          agent_display_name: 'Ana Mônica',
           base_system_prompt: DEFAULT_PROMPT,
           system_prompt: DEFAULT_PROMPT,
           model_name: null,
@@ -444,6 +446,7 @@ export default function AdminAIPage() {
           tenant_id: activeTenant.id,
           enabled_global: settings.enabled_global,
           timezone: settings.timezone,
+          agent_display_name: settings.agent_display_name?.trim() || null,
           base_system_prompt: settings.base_system_prompt,
           system_prompt: settings.base_system_prompt,
           fallback_offhours_message: settings.fallback_offhours_message,
@@ -728,6 +731,19 @@ export default function AdminAIPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="ai-agent-display-name">Nome da atendente virtual</Label>
+                      <Input
+                        id="ai-agent-display-name"
+                        value={settings?.agent_display_name || ''}
+                        onChange={(e) => settings && setSettings({ ...settings, agent_display_name: e.target.value })}
+                        placeholder="Ex: Ana Mônica"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Esse nome aparece nas mensagens automáticas e pode ser usado no prompt via {'{{'}'agent_name{'}}'}.
+                      </p>
+                    </div>
+
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <Label>Modelo do Workspace</Label>

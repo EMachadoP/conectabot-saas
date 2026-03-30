@@ -343,7 +343,9 @@ serve(async (req) => {
     const companyName = workspace?.name || 'G7 Client Connector';
     const contactName = contact?.name || 'Cliente';
     const protocolNumber = activeProtocol?.protocol_code || 'sem protocolo ativo';
-    const agentName = Deno.env.get('AI_DEFAULT_AGENT_NAME') || 'Ana Monica';
+    const agentName = workspaceSettings?.agent_display_name?.trim()
+      || Deno.env.get('AI_DEFAULT_AGENT_NAME')
+      || 'Ana Mônica';
 
     const renderedPrompt = interpolatePrompt(promptTemplate, {
       '{{customer_name}}': contactName,

@@ -146,6 +146,13 @@ serve(async (req) => {
       .eq('contact_id', conv.contact_id)
       .maybeSingle();
 
+    const { data: workspaceSettings } = await supabase
+      .from('ai_settings')
+      .select('agent_display_name')
+      .eq('workspace_id', conv.workspace_id)
+      .limit(1)
+      .maybeSingle();
+
     // 5. Montar contexto complementar do workspace/conversa
     let promptContext = '';
 
@@ -279,7 +286,7 @@ serve(async (req) => {
         conversation_id,
         content: aiData.text,
         message_type: 'text',
-        sender_name: 'Ana Mônica'
+        sender_name: workspaceSettings?.agent_display_name?.trim() || 'Ana Mônica'
       }),
     });
 
