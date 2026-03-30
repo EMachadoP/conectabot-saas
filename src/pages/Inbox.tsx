@@ -35,6 +35,11 @@ export default function InboxPage() {
 
   const { messages, loading: loadingMessages } = useRealtimeMessages(activeConversationId);
 
+  const shouldMarkConversationAsRead = useCallback((conversation: { assigned_to?: string | null } | null | undefined) => {
+    if (!user?.id || !conversation) return false;
+    return !conversation.assigned_to || conversation.assigned_to === user.id;
+  }, [user?.id]);
+
   const parseFunctionError = useCallback(async (error: unknown) => {
     if (error instanceof FunctionsHttpError) {
       try {
@@ -59,11 +64,11 @@ export default function InboxPage() {
       setActiveConvData(data);
       setActiveContact(data.contacts);
 
-      if (data.unread_count > 0) {
+      if (data.unread_count > 0 && shouldMarkConversationAsRead(data)) {
         await supabase.from('conversations').update({ unread_count: 0 }).eq('id', id);
       }
     }
-  }, []);
+  }, [shouldMarkConversationAsRead]);
 
   const toggleContactBlocked = useCallback(async () => {
     if (!activeContact?.id || !activeConversationId) return;
@@ -140,13 +145,16 @@ export default function InboxPage() {
 
   const handleSelectConversation = useCallback((id: string) => {
     setReplyTarget(null);
-    markConversationAsRead(id);
-    void supabase
-      .from('conversations')
-      .update({ unread_count: 0 })
-      .eq('id', id);
+    const selectedConversation = conversations.find((conversation) => conversation.id === id);
+    if (shouldMarkConversationAsRead(selectedConversation)) {
+      markConversationAsRead(id);
+      void supabase
+        .from('conversations')
+        .update({ unread_count: 0 })
+        .eq('id', id);
+    }
     navigate(`/inbox/${id}`);
-  }, [markConversationAsRead, navigate]);
+  }, [conversations, markConversationAsRead, navigate, shouldMarkConversationAsRead]);
 
   const handleSendMessage = async (content: string) => {
     if (!user) {
