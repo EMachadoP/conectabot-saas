@@ -6,6 +6,34 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function normalizeForComparison(text: string | null | undefined) {
+  return (text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function removeRepeatedLead(previousText: string | null | undefined, nextText: string | null | undefined) {
+  const previous = (previousText || '').trim();
+  const next = (nextText || '').trim();
+
+  if (!previous || !next) return next;
+
+  const previousNormalized = normalizeForComparison(previous);
+  const nextNormalized = normalizeForComparison(next);
+
+  if (nextNormalized === previousNormalized) {
+    return '';
+  }
+
+  if (!nextNormalized.startsWith(previousNormalized)) {
+    return next;
+  }
+
+  const remainder = next.slice(previous.length).trimStart();
+  return remainder.replace(/^[\s\-–—:]+/, '').trimStart();
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -133,7 +161,7 @@ serve(async (req) => {
 
     const { data: lastAgentMessage } = await supabase
       .from('messages')
-      .select('sender_id, sender_name, sent_at')
+      .select('sender_id, sender_name, sent_at, content')
       .eq('conversation_id', conversation_id)
       .eq('sender_type', 'agent')
       .order('sent_at', { ascending: false })
@@ -231,6 +259,7 @@ serve(async (req) => {
     promptContext += `\n4. Varie as saudacoes.`;
     promptContext += `\n5. Personalize o tom conforme o contexto.`;
     promptContext += `\n6. Considere as ultimas 30 mensagens para manter o contexto antes de responder.`;
+    promptContext += `\n7. Se a conversa ja foi iniciada, nao repita mensagem de boas-vindas, apresentacao da assistente ou abertura padrao.`;
 
     // 5.5. Get participant_id for protocol creation
     const { data: participantData } = await supabase
@@ -274,6 +303,20 @@ serve(async (req) => {
     const aiData = await aiResponse.json();
     if (!aiData.text) throw new Error('IA não gerou texto');
 
+    const dedupedText = removeRepeatedLead(lastAgentMessage?.content, aiData.text);
+    if (!dedupedText) {
+      await supabase.from('ai_logs').insert({
+        provider: aiData.provider || 'system',
+        model: aiData.model || 'unknown',
+        conversation_id: conversation_id,
+        status: 'skipped',
+        error_message: 'Resposta descartada por duplicar a última mensagem da assistente',
+      });
+      return new Response(JSON.stringify({ success: false, reason: 'Duplicated assistant message' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // 7. Enviar via Z-API
     console.log('[ai-maybe-reply] Enviando resposta via Z-API');
     await fetch(`${supabaseUrl}/functions/v1/zapi-send-message`, {
@@ -284,7 +327,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         conversation_id,
-        content: aiData.text,
+        content: dedupedText,
         message_type: 'text',
         sender_name: workspaceSettings?.agent_display_name?.trim() || 'Ana Mônica'
       }),
@@ -295,7 +338,7 @@ serve(async (req) => {
       model: aiData.model || 'unknown',
       conversation_id: conversation_id,
       status: 'success',
-      output_text: aiData.text,
+      output_text: dedupedText,
       tokens_in: aiData.tokens_in || 0,
       tokens_out: aiData.tokens_out || 0,
       latency_ms: aiData.latency_ms || null,
