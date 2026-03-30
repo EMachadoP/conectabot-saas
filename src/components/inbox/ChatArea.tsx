@@ -187,6 +187,8 @@ export function ChatArea(props: ChatAreaProps) {
           contactId={contact.id}
           conversationId={conversationId}
           workspaceId={contact.workspace_id ?? null}
+          tenantId={contact.tenant_id ?? contact.workspace_id ?? null}
+          contactName={contact.name ?? null}
           existingParticipant={participant}
           onSaved={refetchParticipant}
         />

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
 interface Participant {
@@ -28,6 +29,8 @@ interface IdentifyParticipantModalProps {
   contactId: string;
   conversationId: string;
   workspaceId?: string | null;
+  tenantId?: string | null;
+  contactName?: string | null;
   existingParticipant?: Participant | null;
   onSaved: () => void;
 }
@@ -38,10 +41,13 @@ export function IdentifyParticipantModal({
   contactId,
   conversationId,
   workspaceId,
+  tenantId,
+  contactName,
   existingParticipant,
   onSaved,
 }: IdentifyParticipantModalProps) {
   const { activeTenant } = useTenant();
+  const { user } = useAuth();
   const [name, setName] = useState('');
   const [roleType, setRoleType] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -98,7 +104,10 @@ export function IdentifyParticipantModal({
       .select('id')
       .single();
 
-    if (entityError) throw entityError;
+    if (entityError) {
+      console.warn('Entity creation skipped:', entityError);
+      return null;
+    }
     return newEntity.id;
   };
 
@@ -140,6 +149,7 @@ export function IdentifyParticipantModal({
         return;
       }
 
+      const resolvedTenantId = tenantId || resolvedWorkspaceId;
       const finalEntityId = await resolveEntityId(companyName);
 
       if (existingParticipant) {
@@ -180,6 +190,40 @@ export function IdentifyParticipantModal({
             last_confirmed_at: new Date().toISOString(),
             identification_asked: true,
           }, { onConflict: 'conversation_id' });
+      }
+
+      const memoryPayload = {
+        contact_id: contactId,
+        workspace_id: resolvedWorkspaceId,
+        tenant_id: resolvedTenantId,
+        contact_name: name.trim() || contactName || null,
+        company_name: companyName.trim() || null,
+        role_title: roleType.trim() || null,
+        updated_by: user?.id || null,
+      };
+
+      const { data: existingMemory } = await (supabase as any)
+        .from('contact_memory')
+        .select('id')
+        .eq('contact_id', contactId)
+        .maybeSingle();
+
+      if (existingMemory?.id) {
+        const { error: memoryError } = await (supabase as any)
+          .from('contact_memory')
+          .update(memoryPayload)
+          .eq('id', existingMemory.id);
+
+        if (memoryError) throw memoryError;
+      } else {
+        const { error: memoryError } = await (supabase as any)
+          .from('contact_memory')
+          .insert({
+            ...memoryPayload,
+            created_by: user?.id || null,
+          });
+
+        if (memoryError) throw memoryError;
       }
 
       toast.success('Remetente identificado com sucesso');
