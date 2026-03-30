@@ -120,6 +120,7 @@ export function IdentifyParticipantModal({
         const { error } = await supabase
           .from('participants')
           .update({
+            workspace_id: activeTenant.id,
             name: name.trim(),
             role_type: roleType.trim() || null,
             entity_id: finalEntityId,
@@ -158,9 +159,9 @@ export function IdentifyParticipantModal({
       toast.success('Remetente identificado com sucesso');
       onSaved();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving participant:', error);
-      toast.error('Erro ao salvar identificação');
+      toast.error(error?.message || 'Erro ao salvar identificação');
     } finally {
       setLoading(false);
     }
@@ -195,12 +196,12 @@ export function IdentifyParticipantModal({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="company">Condomínio / Empresa</Label>
+            <Label htmlFor="company">Empresa</Label>
             <Input
               id="company"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="Nome da empresa ou condomínio"
+              placeholder="Nome da empresa"
             />
           </div>
         </div>
