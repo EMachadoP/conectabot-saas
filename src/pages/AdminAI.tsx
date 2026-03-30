@@ -163,13 +163,6 @@ const AVAILABLE_MODELS = {
 };
 
 const PROVIDER_INFO = {
-  lovable: {
-    name: 'Lovable AI (Legado)',
-    description: 'Configuração legada mantida apenas para compatibilidade.',
-    pros: ['Pode aparecer em logs ou registros antigos'],
-    cons: ['Não deve mais ser usado em novas configurações'],
-    keyRef: 'LOVABLE_API_KEY',
-  },
   openai: {
     name: 'OpenAI',
     description: 'Acesso direto à API OpenAI',
@@ -634,13 +627,10 @@ export default function AdminAIPage() {
     } catch (error) {
       console.error('Test error:', error);
       const message = error instanceof Error ? error.message : 'Falha ao testar IA';
-      const friendlyMessage = message.includes('LOVABLE_API_KEY') || message.includes('lovable')
-        ? 'Existe uma configuração legada apontando para Lovable. Remova esse provedor e deixe Gemini ou OpenAI como ativo.'
-        : message;
       toast({ 
         variant: 'destructive', 
         title: 'Erro no teste', 
-        description: friendlyMessage,
+        description: message,
       });
     } finally {
       setTesting(false);
@@ -1107,7 +1097,9 @@ export default function AdminAIPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {providers.map(provider => {
+                    {providers
+                      .filter(provider => provider.provider === 'openai' || provider.provider === 'gemini')
+                      .map(provider => {
                       const providerInfo = PROVIDER_INFO[provider.provider as keyof typeof PROVIDER_INFO];
                       const expectedKeyRef = providerInfo?.keyRef;
                       const hasCorrectKeyRef = provider.key_ref === expectedKeyRef;
@@ -1123,21 +1115,19 @@ export default function AdminAIPage() {
                               <div className="flex items-center gap-2">
                                 <p className="font-medium capitalize">{provider.provider}</p>
                                 {provider.active && <Badge variant="default">Ativo</Badge>}
-                                {provider.provider !== 'lovable' && (
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger>
-                                        <Badge variant={hasCorrectKeyRef ? "secondary" : "destructive"}>
-                                          {hasCorrectKeyRef ? "Secret OK" : "Secret Incorreto"}
-                                        </Badge>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Esperado: {expectedKeyRef}</p>
-                                        <p>Atual: {provider.key_ref || 'não definido'}</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                )}
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <Badge variant={hasCorrectKeyRef ? "secondary" : "destructive"}>
+                                        {hasCorrectKeyRef ? "Secret OK" : "Secret Incorreto"}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Esperado: {expectedKeyRef}</p>
+                                      <p>Atual: {provider.key_ref || 'não definido'}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                               </div>
                               <p className="text-sm text-muted-foreground font-mono">{provider.model}</p>
                             </div>
@@ -1156,7 +1146,7 @@ export default function AdminAIPage() {
                         </div>
                       );
                     })}
-                    {providers.length === 0 && (
+                    {providers.filter(provider => provider.provider === 'openai' || provider.provider === 'gemini').length === 0 && (
                       <p className="text-muted-foreground text-center py-8">
                         Nenhum provedor configurado. Adicione um para usar a IA.
                       </p>
@@ -1261,7 +1251,9 @@ export default function AdminAIPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__active__">Ativo</SelectItem>
-                          {providers.map(p => (
+                          {providers
+                            .filter(p => p.provider === 'openai' || p.provider === 'gemini')
+                            .map(p => (
                             <SelectItem key={p.id} value={p.id}>
                               {p.provider} - {p.model}
                             </SelectItem>

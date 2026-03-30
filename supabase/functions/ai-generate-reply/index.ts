@@ -65,7 +65,6 @@ Nunca invente preços, prazos ou informações não confirmadas.`;
 
 function getProviderSecretName(provider: { provider: string; key_ref?: string | null }) {
   if (provider.key_ref) return provider.key_ref;
-  if (provider.provider === 'lovable') return 'LOVABLE_API_KEY';
   if (provider.provider === 'openai') return 'OPENAI_API_KEY';
   if (provider.provider === 'gemini') return 'GEMINI_API_KEY';
   return '';
@@ -75,7 +74,6 @@ function providerSupportsModel(providerName: string, model: string) {
   if (!model) return true;
   const normalized = model.toLowerCase();
 
-  if (providerName === 'lovable') return true;
   if (providerName === 'gemini') return normalized.includes('gemini');
   if (providerName === 'openai') {
     return normalized.includes('gpt') || normalized.includes('o1') || normalized.includes('o3') || normalized.includes('o4');
@@ -416,7 +414,7 @@ Para registrar um problema, use SEMPRE a ferramenta 'create_protocol' IMEDIATAME
 NUNCA diga que registrou o protocolo sem chamar a ferramenta.
 NUNCA invente preços ou prazos.`;
 
-    const { data: providerConfigs, error: providerConfigsError } = await supabase
+    const { data: providerConfigsRaw, error: providerConfigsError } = await supabase
       .from('ai_provider_configs')
       .select('*')
       .order('created_at', { ascending: true });
@@ -425,7 +423,13 @@ NUNCA invente preços ou prazos.`;
       throw new Error(`Falha ao carregar provedores de IA: ${providerConfigsError.message}`);
     }
 
-    if (!providerConfigs?.length) throw new Error('Nenhum provedor de IA configurado');
+    const providerConfigs = (providerConfigsRaw ?? []).filter(
+      (config: any) => config.provider === 'openai' || config.provider === 'gemini',
+    );
+
+    if (!providerConfigs?.length) {
+      throw new Error('Nenhum provedor de IA configurado. Cadastre OpenAI ou Gemini e marque um deles como ativo.');
+    }
 
     const requestedProvider = rawBody.providerId
       ? providerConfigs.find((config: any) => config.id === rawBody.providerId) ?? null
@@ -464,11 +468,7 @@ NUNCA invente preços ou prazos.`;
 
     if (!selectedProviderEntry) {
       const expectedKeyRef = getProviderSecretName(initialProvider);
-      throw new Error(
-        initialProvider.provider === 'lovable'
-          ? 'Secret LOVABLE_API_KEY não configurado no Supabase para o provedor Lovable'
-          : `Chave de API não encontrada para ${initialProvider.provider}. Configure o secret ${expectedKeyRef}`
-      );
+      throw new Error(`Chave de API não encontrada para ${initialProvider.provider}. Configure o secret ${expectedKeyRef}`);
     }
 
     const provider = selectedProviderEntry.config as any;
@@ -497,9 +497,9 @@ NUNCA invente preços ou prazos.`;
     }];
 
     let response: Response;
-    if (provider.provider === 'lovable' || provider.provider === 'openai') {
+    if (provider.provider === 'openai') {
       response = await fetch(
-        provider.provider === 'lovable' ? 'https://ai.gateway.lovable.dev/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions',
+        'https://api.openai.com/v1/chat/completions',
         {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
