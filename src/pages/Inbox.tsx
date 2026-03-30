@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
@@ -33,6 +34,19 @@ export default function InboxPage() {
   });
 
   const { messages, loading: loadingMessages } = useRealtimeMessages(activeConversationId);
+
+  const parseFunctionError = useCallback(async (error: unknown) => {
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const response = await error.context.json();
+        return response?.error || error.message;
+      } catch {
+        return error.message;
+      }
+    }
+
+    return error instanceof Error ? error.message : 'Erro desconhecido';
+  }, []);
 
   const fetchActiveConversationDetails = useCallback(async (id: string) => {
     const { data } = await supabase
@@ -207,7 +221,7 @@ export default function InboxPage() {
     }
   };
 
-  const handleAssignAgent = async (agentId: string) => {
+  const handleAssignAgent = useCallback(async (agentId: string) => {
     if (!activeConversationId) return;
 
     try {
@@ -228,16 +242,16 @@ export default function InboxPage() {
 
       if (error) {
         console.error('Erro ao atribuir agente:', error);
-        alert(`Erro ao atribuir agente: ${error.message || 'Erro desconhecido'}`);
+        alert(`Erro ao atribuir agente: ${await parseFunctionError(error)}`);
       } else {
         await fetchActiveConversationDetails(activeConversationId);
         console.log('Agente atribuído com sucesso');
       }
     } catch (error: any) {
       console.error('Erro ao atribuir agente:', error);
-      alert(`Erro ao atribuir agente: ${error.message || 'Erro desconhecido'}`);
+      alert(`Erro ao atribuir agente: ${await parseFunctionError(error)}`);
     }
-  };
+  }, [activeConversationId, fetchActiveConversationDetails, parseFunctionError]);
 
   if (authLoading) return null;
   if (!user) return <Navigate to="/auth" replace />;
