@@ -221,6 +221,18 @@ serve(async (req) => {
 
     if (!contact) throw new Error('Falha ao processar contato do chat');
 
+    const { data: blockedContact } = await supabase
+      .from('contacts')
+      .select('id, tags')
+      .eq('id', contact.id)
+      .maybeSingle();
+
+    const isBlockedContact = Array.isArray(blockedContact?.tags) && blockedContact.tags.includes('blocked');
+    if (isBlockedContact && !fromMe) {
+      console.log('[Webhook] Ignorando mensagem de contato bloqueado:', contact.id);
+      return new Response(JSON.stringify({ success: true, blocked: true }), { headers: corsHeaders });
+    }
+
     // 5. Salvar/Atualizar Conversa (Lógica robusta para lidar com thread_key legada)
     const conversationKey = chatLid;
     let { data: existingConv } = await supabase.from('conversations')

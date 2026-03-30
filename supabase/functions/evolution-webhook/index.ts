@@ -145,9 +145,15 @@ serve(async (req) => {
                 name: chatName,
                 is_group: isGroup,
                 updated_at: now
-            }, { onConflict: 'chat_lid' }).select('id').single();
+            }, { onConflict: 'chat_lid' }).select('id, tags').single();
 
             if (!contact) throw new Error("Contact upsert failed");
+
+            const isBlockedContact = Array.isArray(contact.tags) && contact.tags.includes('blocked');
+            if (isBlockedContact) {
+                console.log(`[EVO-WEBHOOK] Ignoring message from blocked contact: ${contact.id}`);
+                return new Response(JSON.stringify({ success: true, blocked: true }), { headers: corsHeaders });
+            }
 
             // Upsert Conversation
             const { data: conv } = await supabase.from('conversations').upsert({
