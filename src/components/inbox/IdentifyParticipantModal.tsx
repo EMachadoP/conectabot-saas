@@ -9,22 +9,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { toast } from 'sonner';
-
-interface Entity {
-  id: string;
-  name: string;
-  type: string;
-}
 
 interface Participant {
   id: string;
@@ -44,23 +31,6 @@ interface IdentifyParticipantModalProps {
   onSaved: () => void;
 }
 
-const ROLE_TYPES = [
-  { value: 'sindico', label: 'Síndico' },
-  { value: 'subsindico', label: 'Subsíndico' },
-  { value: 'porteiro', label: 'Porteiro' },
-  { value: 'zelador', label: 'Zelador' },
-  { value: 'morador', label: 'Morador' },
-  { value: 'administrador', label: 'Administrador' },
-  { value: 'conselheiro', label: 'Conselheiro' },
-  { value: 'funcionario', label: 'Funcionário' },
-  { value: 'supervisor_condominial', label: 'Supervisor Condominial' },
-  { value: 'visitante', label: 'Visitante' },
-  { value: 'prestador', label: 'Prestador de Serviço' },
-  { value: 'fornecedor', label: 'Fornecedor' },
-  { value: 'cliente', label: 'Cliente' },
-  { value: 'outro', label: 'Outro' },
-];
-
 export function IdentifyParticipantModal({
   open,
   onOpenChange,
@@ -71,36 +41,63 @@ export function IdentifyParticipantModal({
 }: IdentifyParticipantModalProps) {
   const { activeTenant } = useTenant();
   const [name, setName] = useState('');
-  const [roleType, setRoleType] = useState<string>('');
-  const [entityId, setEntityId] = useState<string>('');
-  const [newEntityName, setNewEntityName] = useState('');
-  const [entities, setEntities] = useState<Entity[]>([]);
+  const [roleType, setRoleType] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [createNewEntity, setCreateNewEntity] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      fetchEntities();
+    const hydrateExistingParticipant = async () => {
+      if (!open) return;
+
       if (existingParticipant) {
         setName(existingParticipant.name);
         setRoleType(existingParticipant.role_type || '');
-        setEntityId(existingParticipant.entity_id || '');
+
+        if (existingParticipant.entity_id) {
+          const { data } = await supabase
+            .from('entities')
+            .select('name')
+            .eq('id', existingParticipant.entity_id)
+            .maybeSingle();
+
+          setCompanyName(data?.name || '');
+        } else {
+          setCompanyName('');
+        }
       } else {
         setName('');
         setRoleType('');
-        setEntityId('');
+        setCompanyName('');
       }
-      setNewEntityName('');
-      setCreateNewEntity(false);
-    }
+    };
+
+    void hydrateExistingParticipant();
   }, [open, existingParticipant]);
 
-  const fetchEntities = async () => {
-    const { data } = await supabase
+  const resolveEntityId = async (rawCompanyName: string) => {
+    const normalizedCompanyName = rawCompanyName.trim();
+    if (!normalizedCompanyName) return null;
+
+    const { data: existingEntity, error: searchError } = await supabase
       .from('entities')
-      .select('*')
-      .order('name');
-    if (data) setEntities(data);
+      .select('id')
+      .eq('name', normalizedCompanyName)
+      .maybeSingle();
+
+    if (searchError) throw searchError;
+    if (existingEntity?.id) return existingEntity.id;
+
+    const { data: newEntity, error: entityError } = await supabase
+      .from('entities')
+      .insert({
+        name: normalizedCompanyName,
+        type: 'empresa',
+      })
+      .select('id')
+      .single();
+
+    if (entityError) throw entityError;
+    return newEntity.id;
   };
 
   const handleSave = async () => {
@@ -117,43 +114,29 @@ export function IdentifyParticipantModal({
     setLoading(true);
 
     try {
-      let finalEntityId = entityId;
-
-      // Create new entity if requested
-      if (createNewEntity && newEntityName.trim()) {
-        const { data: newEntity, error: entityError } = await supabase
-          .from('entities')
-          .insert({ name: newEntityName.trim(), type: 'condominio' })
-          .select()
-          .single();
-
-        if (entityError) throw entityError;
-        finalEntityId = newEntity.id;
-      }
+      const finalEntityId = await resolveEntityId(companyName);
 
       if (existingParticipant) {
-        // Update existing participant
         const { error } = await supabase
           .from('participants')
           .update({
             name: name.trim(),
-            role_type: roleType || null,
-            entity_id: finalEntityId || null,
-            confidence: 1.0, // User confirmed
+            role_type: roleType.trim() || null,
+            entity_id: finalEntityId,
+            confidence: 1.0,
           })
           .eq('id', existingParticipant.id);
 
         if (error) throw error;
       } else {
-        // Create new participant
         const { data: newParticipant, error } = await supabase
           .from('participants')
           .insert({
             workspace_id: activeTenant.id,
             contact_id: contactId,
             name: name.trim(),
-            role_type: roleType || null,
-            entity_id: finalEntityId || null,
+            role_type: roleType.trim() || null,
+            entity_id: finalEntityId,
             confidence: 1.0,
             is_primary: true,
           })
@@ -162,7 +145,6 @@ export function IdentifyParticipantModal({
 
         if (error) throw error;
 
-        // Update conversation_participant_state
         await supabase
           .from('conversation_participant_state')
           .upsert({
@@ -204,61 +186,22 @@ export function IdentifyParticipantModal({
 
           <div className="space-y-2">
             <Label htmlFor="role">Função</Label>
-            <Select value={roleType} onValueChange={setRoleType}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione uma função" />
-              </SelectTrigger>
-              <SelectContent>
-                {ROLE_TYPES.map((role) => (
-                  <SelectItem key={role.value} value={role.value}>
-                    {role.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Input
+              id="role"
+              value={roleType}
+              onChange={(e) => setRoleType(e.target.value)}
+              placeholder="Ex.: Diretor, Financeiro, Compras"
+            />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="entity">Condomínio / Empresa</Label>
-            {createNewEntity ? (
-              <div className="flex gap-2">
-                <Input
-                  value={newEntityName}
-                  onChange={(e) => setNewEntityName(e.target.value)}
-                  placeholder="Nome do condomínio/empresa"
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCreateNewEntity(false)}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <Select value={entityId} onValueChange={setEntityId}>
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {entities.map((entity) => (
-                      <SelectItem key={entity.id} value={entity.id}>
-                        {entity.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCreateNewEntity(true)}
-                >
-                  Novo
-                </Button>
-              </div>
-            )}
+            <Label htmlFor="company">Condomínio / Empresa</Label>
+            <Input
+              id="company"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="Nome da empresa ou condomínio"
+            />
           </div>
         </div>
 

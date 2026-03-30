@@ -36,6 +36,7 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [memoryId, setMemoryId] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(true);
   const [form, setForm] = useState<ContactMemoryState>({
     ...emptyState,
     contact_name: contact.name || '',
@@ -64,12 +65,14 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
             role_title: data.role_title || '',
             notes: data.notes || '',
           });
+          setIsExpanded(false);
         } else {
           setMemoryId(null);
           setForm({
             ...emptyState,
             contact_name: contact.name || '',
           });
+          setIsExpanded(true);
         }
       } catch (error: any) {
         toast({
@@ -143,6 +146,7 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
         if (contactError) throw contactError;
       }
 
+      setIsExpanded(false);
       toast({
         title: 'Dados do contato salvos',
         description: 'A IA poderá usar essas informações nas próximas interações.',
@@ -158,6 +162,30 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
     }
   };
 
+  if (loading) {
+    return (
+      <div className="border-b border-border bg-muted/20 px-4 py-3">
+        <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Carregando dados do contato...
+        </div>
+      </div>
+    );
+  }
+
+  if (!isExpanded) {
+    return (
+      <div className="border-b border-border bg-muted/20 px-4 py-3">
+        <div className="flex items-center justify-end">
+          <Button size="sm" variant="outline" onClick={() => setIsExpanded(true)}>
+            <NotebookPen className="mr-2 h-4 w-4" />
+            Editar memória do contato
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="border-b border-border bg-muted/20 px-4 py-3">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -167,69 +195,69 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
             Esses dados ajudam a IA a identificar, contextualizar e encaminhar o cliente mais rápido.
           </p>
         </div>
-        <Button size="sm" onClick={handleSave} disabled={loading || saving}>
-          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Salvar dados
-        </Button>
+        <div className="flex items-center gap-2">
+          {memoryId && (
+            <Button size="sm" variant="outline" onClick={() => setIsExpanded(false)} disabled={saving}>
+              Ocultar
+            </Button>
+          )}
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Salvar dados
+          </Button>
+        </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Carregando dados do contato...
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="space-y-2">
+          <Label htmlFor="contact-memory-name" className="flex items-center gap-2">
+            <UserRound className="h-4 w-4" /> Nome
+          </Label>
+          <Input
+            id="contact-memory-name"
+            value={form.contact_name}
+            onChange={(event) => handleChange('contact_name', event.target.value)}
+            placeholder="Nome do cliente"
+          />
         </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="space-y-2">
-            <Label htmlFor="contact-memory-name" className="flex items-center gap-2">
-              <UserRound className="h-4 w-4" /> Nome
-            </Label>
-            <Input
-              id="contact-memory-name"
-              value={form.contact_name}
-              onChange={(event) => handleChange('contact_name', event.target.value)}
-              placeholder="Nome do cliente"
-            />
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="contact-memory-company" className="flex items-center gap-2">
-              <Building2 className="h-4 w-4" /> Empresa
-            </Label>
-            <Input
-              id="contact-memory-company"
-              value={form.company_name}
-              onChange={(event) => handleChange('company_name', event.target.value)}
-              placeholder="Empresa ou condomínio"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="contact-memory-role" className="flex items-center gap-2">
-              <UserRound className="h-4 w-4" /> Função
-            </Label>
-            <Input
-              id="contact-memory-role"
-              value={form.role_title}
-              onChange={(event) => handleChange('role_title', event.target.value)}
-              placeholder="Cargo ou papel do contato"
-            />
-          </div>
-
-          <div className="space-y-2 md:col-span-3">
-            <Label htmlFor="contact-memory-notes" className="flex items-center gap-2">
-              <NotebookPen className="h-4 w-4" /> Observações para a IA
-            </Label>
-            <Textarea
-              id="contact-memory-notes"
-              value={form.notes}
-              onChange={(event) => handleChange('notes', event.target.value)}
-              placeholder="Ex.: cliente prefere tratar com Sérgio, pediu proposta comercial, atua no financeiro."
-              rows={3}
-            />
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="contact-memory-company" className="flex items-center gap-2">
+            <Building2 className="h-4 w-4" /> Empresa
+          </Label>
+          <Input
+            id="contact-memory-company"
+            value={form.company_name}
+            onChange={(event) => handleChange('company_name', event.target.value)}
+            placeholder="Empresa ou condomínio"
+          />
         </div>
-      )}
+
+        <div className="space-y-2">
+          <Label htmlFor="contact-memory-role" className="flex items-center gap-2">
+            <UserRound className="h-4 w-4" /> Função
+          </Label>
+          <Input
+            id="contact-memory-role"
+            value={form.role_title}
+            onChange={(event) => handleChange('role_title', event.target.value)}
+            placeholder="Cargo ou papel do contato"
+          />
+        </div>
+
+        <div className="space-y-2 md:col-span-3">
+          <Label htmlFor="contact-memory-notes" className="flex items-center gap-2">
+            <NotebookPen className="h-4 w-4" /> Observações para a IA
+          </Label>
+          <Textarea
+            id="contact-memory-notes"
+            value={form.notes}
+            onChange={(event) => handleChange('notes', event.target.value)}
+            placeholder="Ex.: cliente prefere tratar com Sérgio, pediu proposta comercial, atua no financeiro."
+            rows={3}
+          />
+        </div>
+      </div>
     </div>
   );
 }
