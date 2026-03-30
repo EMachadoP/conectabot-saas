@@ -97,3 +97,6 @@ verify_jwt = false
 [functions.sync-stripe-subscription]
 verify_jwt = false
 
+[functions.resend-user-access-email]
+verify_jwt = false
+
