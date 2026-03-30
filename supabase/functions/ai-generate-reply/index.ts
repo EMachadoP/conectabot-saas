@@ -229,7 +229,7 @@ serve(async (req) => {
     if (conversationId) {
       const { data: conversationData, error: conversationError } = await supabase
         .from('conversations')
-        .select('id, workspace_id, contact_id, active_protocol_id')
+        .select('id, workspace_id, contact_id')
         .eq('id', conversationId)
         .maybeSingle();
 
@@ -268,12 +268,14 @@ serve(async (req) => {
       workspace = data;
     }
 
-    if (conversation?.active_protocol_id) {
+    if (conversation?.id) {
       const { data } = await supabase
         .from('protocols')
         .select('id, protocol_code')
-        .eq('id', conversation.active_protocol_id)
+        .eq('conversation_id', conversation.id)
         .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
       activeProtocol = data;
     }

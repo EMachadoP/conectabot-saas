@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { Users, Shield, UserRound, Mail, RefreshCw, UserPlus, Trash2, KeyRound } from 'lucide-react';
+import { Users, Shield, UserRound, Mail, RefreshCw, UserPlus, Trash2, KeyRound, Pencil } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -83,6 +83,10 @@ export default function TeamSettingsPage() {
   const [adminPassword, setAdminPassword] = useState('');
   const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
   const [savingAdminPassword, setSavingAdminPassword] = useState(false);
+  const [editNameDialogOpen, setEditNameDialogOpen] = useState(false);
+  const [editNameTarget, setEditNameTarget] = useState<TeamMember | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [savingDisplayName, setSavingDisplayName] = useState(false);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
@@ -261,6 +265,42 @@ export default function TeamSettingsPage() {
     setAdminPassword('');
     setAdminPasswordConfirm('');
     setPasswordDialogOpen(true);
+  };
+
+  const openEditNameDialog = (member: TeamMember) => {
+    setEditNameTarget(member);
+    setEditDisplayName(member.profile?.display_name || member.profile?.name || '');
+    setEditNameDialogOpen(true);
+  };
+
+  const handleDisplayNameUpdate = async () => {
+    if (!editNameTarget?.user_id) return;
+
+    setSavingDisplayName(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ display_name: editDisplayName.trim() || null })
+      .eq('id', editNameTarget.user_id);
+    setSavingDisplayName(false);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao atualizar nome',
+        description: error.message,
+      });
+      return;
+    }
+
+    toast({
+      title: 'Nome atualizado',
+      description: 'O nome de exibição do usuário foi atualizado.',
+    });
+
+    setEditNameDialogOpen(false);
+    setEditNameTarget(null);
+    setEditDisplayName('');
+    loadMembers();
   };
 
   const handleAdminPasswordUpdate = async () => {
@@ -616,6 +656,15 @@ export default function TeamSettingsPage() {
                     </div>
 
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Button
+                        variant="outline"
+                        onClick={() => openEditNameDialog(member)}
+                        disabled={!member.user_id || member.status !== 'active'}
+                      >
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Nome
+                      </Button>
+
                       {memberRole !== 'owner' && (
                         <Select
                           value={memberRole}
@@ -677,6 +726,51 @@ export default function TeamSettingsPage() {
             })}
           </CardContent>
         </Card>
+
+        <Dialog
+          open={editNameDialogOpen}
+          onOpenChange={(open) => {
+            setEditNameDialogOpen(open);
+            if (!open) {
+              setEditNameTarget(null);
+              setEditDisplayName('');
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar nome de exibição</DialogTitle>
+              <DialogDescription>
+                Defina como este usuário deve aparecer no sistema e nas mensagens.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Usuário</Label>
+                <Input value={editNameTarget?.profile?.email ?? ''} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-display-name">Nome de exibição</Label>
+                <Input
+                  id="edit-display-name"
+                  placeholder="Ex: Eldon Machado"
+                  value={editDisplayName}
+                  onChange={(event) => setEditDisplayName(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditNameDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleDisplayNameUpdate} disabled={savingDisplayName}>
+                {savingDisplayName ? 'Salvando...' : 'Salvar nome'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={passwordDialogOpen}
