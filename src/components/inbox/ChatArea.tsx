@@ -121,6 +121,7 @@ export function ChatArea(props: ChatAreaProps) {
 
       {!contact.is_group && (
         <ParticipantHeader
+          contactId={contact.id}
           phone={contact.phone}
           whatsappDisplayName={contactInfo?.whatsapp_display_name || contact.whatsapp_display_name}
           participant={participant}

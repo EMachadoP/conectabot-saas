@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
 import { UserCheck, Building2, AlertCircle } from 'lucide-react';
 import { NotificationStatus } from './NotificationStatus';
 import { CondominiumSelector } from './CondominiumSelector';
@@ -26,6 +28,7 @@ interface Condominium {
 }
 
 interface ParticipantHeaderProps {
+  contactId?: string | null;
   phone?: string | null;
   whatsappDisplayName?: string | null;
   participant?: Participant | null;
@@ -41,6 +44,7 @@ interface ParticipantHeaderProps {
 }
 
 export function ParticipantHeader({
+  contactId,
   phone,
   whatsappDisplayName,
   participant,
@@ -54,9 +58,41 @@ export function ParticipantHeader({
   onIdentify,
   onSelectCondominium,
 }: ParticipantHeaderProps) {
+  const [companyName, setCompanyName] = useState('');
   const isLowConfidence = !participant || participant.confidence < 0.7;
   const isEntityName = displayNameType === 'ENTITY_NAME';
   const needsCondominiumSelection = condominiums.length > 1 && !activeCondominiumId;
+  const normalizedCompany = companyName.trim().toLowerCase();
+  const normalizedEntity = participant?.entity?.name?.trim().toLowerCase() || '';
+  const showMemoryCompany = Boolean(companyName) && normalizedCompany !== normalizedEntity;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCompanyName = async () => {
+      if (!contactId) {
+        setCompanyName('');
+        return;
+      }
+
+      const client = supabase as any;
+      const { data } = await client
+        .from('contact_memory')
+        .select('company_name')
+        .eq('contact_id', contactId)
+        .maybeSingle();
+
+      if (!cancelled) {
+        setCompanyName(data?.company_name || '');
+      }
+    };
+
+    void loadCompanyName();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contactId]);
 
   return (
     <div className="bg-muted/50 border-b border-border px-4 py-2">
@@ -96,6 +132,12 @@ export function ParticipantHeader({
                 {participant.role_type && (
                   <Badge variant="secondary" className="text-xs">
                     {participant.role_type}
+                  </Badge>
+                )}
+                {showMemoryCompany && (
+                  <Badge variant="outline" className="text-xs gap-1">
+                    <Building2 className="w-3 h-3" />
+                    {companyName}
                   </Badge>
                 )}
                 {participant.entity && (
