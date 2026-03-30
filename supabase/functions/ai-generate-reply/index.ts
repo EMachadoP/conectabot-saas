@@ -289,6 +289,9 @@ serve(async (req) => {
           .maybeSingle()
       : { data: null };
 
+    const workspacePolicies = (workspaceSettings?.policies_json ?? {}) as Record<string, any>;
+    const protocolGenerationEnabled = workspacePolicies.enable_protocol_generation !== false;
+
     if (workspaceId) {
       const billingBlock = await requireBillingAccess(workspaceId, 'ai_reply', 1);
       if (billingBlock) return billingBlock;
@@ -373,8 +376,9 @@ serve(async (req) => {
     const isProvidingApartment = looksLikeApartment(lastUserMsgText) && hasOperationalContext;
     const needsApartment = /(interfone|tv|controle|apartamento|apto|unidade)/i.test(recentText);
     const canOpenNow = hasOperationalContext && (!needsApartment || Boolean(aptCandidate));
+    const operationalIntentDetected = hasOperationalContext || isProvidingApartment;
 
-    if (conversationId && (canOpenNow || isProvidingApartment)) {
+    if (protocolGenerationEnabled && conversationId && (canOpenNow || isProvidingApartment)) {
       if (needsApartment && !aptCandidate) {
         console.log('[TICKET] Deterministic block: Need apartment for issue:', lastIssueMsg?.content);
         return new Response(JSON.stringify({
@@ -409,13 +413,21 @@ serve(async (req) => {
     // --- TIER 5: IA (LLM) ---
 
     // Final Prompt Reinforcement
+    const protocolInstructions = protocolGenerationEnabled
+      ? `Se o assunto for operacional ou tecnico e exigir abertura de protocolo, use a ferramenta 'create_protocol' somente quando fizer sentido.
+Nao diga que abriu protocolo sem realmente chamar a ferramenta.
+Se o atendimento nao exigir protocolo, siga normalmente sem mencionar protocolo.`
+      : `Neste workspace, nao abra protocolo e nao prometa abertura de protocolo.
+Conduza o atendimento normalmente, colete os dados necessarios e encaminhe sem falar em protocolo automatico.`;
+
     const cleanPrompt = `${renderedPrompt}
 
 ${promptContext ? `${promptContext}\n\n` : ''}Sua personalidade atual e a de um assistente dedicado ao workspace ${companyName}.
 
-Sua única função é ajudar com problemas técnicos de condomínio.
-Para registrar um problema, use SEMPRE a ferramenta 'create_protocol' IMEDIATAMENTE.
-NUNCA diga que registrou o protocolo sem chamar a ferramenta.
+Atenda conforme o contexto real da conversa.
+Se o contato ja estiver identificado, seja mais direto.
+Se o contato nao estiver identificado, faca apenas perguntas pertinentes para destravar o atendimento.
+${protocolInstructions}
 NUNCA invente preços ou prazos.`;
 
     const { data: providerConfigsRaw, error: providerConfigsError } = await supabase
@@ -483,54 +495,62 @@ NUNCA invente preços ou prazos.`;
     const apiKey = selectedProviderEntry.secretValue!;
 
     // Tool definition (using create_protocol as name to avoid confusion)
-    const protocolTool = [{
-      type: "function",
-      function: {
-        name: "create_protocol",
-        description: "Registra tecnicamente um problema de condomínio para a equipe operacional.",
-        parameters: {
-          type: "object",
-          properties: {
-            summary: { type: "string", description: "O problema detalhado" },
-            priority: { type: "string", enum: ["normal", "critical"] },
-            apartment: { type: "string", description: "Apartamento (se souber)" }
-          },
-          required: ["summary"]
-        }
-      }
-    }];
+    const protocolTool = protocolGenerationEnabled && operationalIntentDetected
+      ? [{
+          type: "function",
+          function: {
+            name: "create_protocol",
+            description: "Registra tecnicamente um problema de condomínio para a equipe operacional.",
+            parameters: {
+              type: "object",
+              properties: {
+                summary: { type: "string", description: "O problema detalhado" },
+                priority: { type: "string", enum: ["normal", "critical"] },
+                apartment: { type: "string", description: "Apartamento (se souber)" }
+              },
+              required: ["summary"]
+            }
+          }
+        }]
+      : [];
 
     let response: Response;
     if (provider.provider === 'openai') {
+      const openAiPayload: Record<string, unknown> = {
+        model: selectedModel,
+        messages: [{ role: 'system', content: cleanPrompt }, ...messagesNoSystem],
+        temperature: selectedTemperature,
+      };
+      if (protocolTool.length > 0) {
+        openAiPayload.tools = protocolTool;
+        openAiPayload.tool_choice = 'auto';
+      }
       response = await fetch(
         'https://api.openai.com/v1/chat/completions',
         {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [{ role: 'system', content: cleanPrompt }, ...messagesNoSystem],
-            tools: protocolTool,
-            tool_choice: 'auto',
-            temperature: selectedTemperature
-          })
+          body: JSON.stringify(openAiPayload)
         }
       );
     } else if (provider.provider === 'gemini') {
+      const geminiPayload: Record<string, unknown> = {
+        systemInstruction: { parts: [{ text: cleanPrompt }] },
+        contents: messagesNoSystem.map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        })),
+        generationConfig: { temperature: selectedTemperature }
+      };
+      if (protocolTool.length > 0) {
+        geminiPayload.tools = [{ functionDeclarations: [protocolTool[0].function] }];
+        geminiPayload.toolConfig = { functionCallingConfig: { mode: "AUTO" } };
+      }
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`;
       response = await fetch(geminiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: cleanPrompt }] },
-          contents: messagesNoSystem.map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }]
-          })),
-          tools: [{ functionDeclarations: [protocolTool[0].function] }],
-          toolConfig: { functionCallingConfig: { mode: "AUTO" } },
-          generationConfig: { temperature: selectedTemperature }
-        })
+        body: JSON.stringify(geminiPayload)
       });
     } else { throw new Error(`Provedor não suportado: ${provider.provider}`); }
 
@@ -576,7 +596,7 @@ NUNCA invente preços ou prazos.`;
 
     // --- FALLBACK INTENT DETECTION ---
     const aiSaidWillRegister = /vou registrar|vou abrir|vou encaminhar|registrei/i.test(generatedText);
-    if (!functionCall && aiSaidWillRegister) {
+    if (protocolGenerationEnabled && operationalIntentDetected && !functionCall && aiSaidWillRegister) {
       console.warn('FALLBACK: Intent detected. Forcing protocol creation...');
       functionCall = {
         name: 'create_protocol',
@@ -589,7 +609,7 @@ NUNCA invente preços ou prazos.`;
     }
 
     // Implementation of Tool call (if triggered by AI or Fallback)
-    if (functionCall && (functionCall.name === 'create_protocol' || functionCall.name === 'create_ticket')) {
+    if (protocolGenerationEnabled && functionCall && (functionCall.name === 'create_protocol' || functionCall.name === 'create_ticket')) {
       try {
         const ticketData = await executeCreateProtocol(supabase, supabaseUrl, supabaseServiceKey, conversationId!, participant_id, functionCall.args);
         const protocolCode = ticketData.protocol?.protocol_code || ticketData.protocol_code;

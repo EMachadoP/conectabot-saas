@@ -176,13 +176,19 @@ serve(async (req) => {
 
     const { data: workspaceSettings } = await supabase
       .from('ai_settings')
-      .select('agent_display_name')
+      .select('agent_display_name, policies_json')
       .eq('workspace_id', conv.workspace_id)
       .limit(1)
       .maybeSingle();
 
     // 5. Montar contexto complementar do workspace/conversa
     let promptContext = '';
+    const isRegisteredCustomer = Boolean(
+      participantState?.participants ||
+      contactMemory?.contact_name ||
+      contactMemory?.company_name ||
+      contactMemory?.role_title,
+    );
 
     if (participantState?.participants) {
       const participant = participantState.participants as any;
@@ -229,6 +235,20 @@ serve(async (req) => {
       if (contactMemory.role_title) promptContext += `\nFuncao/cargo: ${contactMemory.role_title}`;
       if (contactMemory.notes) promptContext += `\nObservacoes: ${contactMemory.notes}`;
       promptContext += `\nUse esses dados para personalizar a resposta sem pedir novamente o que ja foi salvo.`;
+    }
+
+    promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    promptContext += `\nREGRA DE QUALIFICACAO DO ATENDIMENTO`;
+    promptContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    if (isRegisteredCustomer) {
+      promptContext += `\nEste contato ja esta identificado/cadastrado no sistema.`;
+      promptContext += `\nSeja direto e objetivo.`;
+      promptContext += `\nNao repita perguntas basicas que o sistema ja conhece.`;
+      promptContext += `\nPergunte apenas o que faltar para concluir a demanda atual.`;
+    } else {
+      promptContext += `\nEste contato ainda nao esta totalmente identificado no sistema.`;
+      promptContext += `\nFaca apenas as perguntas pertinentes e minimas para avancar no atendimento.`;
+      promptContext += `\nEvite interrogatorio longo ou coleta desnecessaria.`;
     }
 
     const assignedAgentName = (conv.assigned_profile as any)?.name || null;

@@ -314,6 +314,19 @@ export default function AdminAIPage() {
     provider: 'all',
   });
 
+  const protocolGenerationEnabled = settings?.policies_json?.enable_protocol_generation !== false;
+
+  const updatePolicy = (key: string, value: unknown) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      policies_json: {
+        ...(settings.policies_json || {}),
+        [key]: value,
+      },
+    });
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -1175,6 +1188,37 @@ export default function AdminAIPage() {
 
             {/* CONTEXT TAB */}
             <TabsContent value="context" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Fluxo do Atendimento</CardTitle>
+                  <CardDescription>
+                    Defina quando a IA pode abrir protocolo e como deve conduzir o atendimento.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                    <div className="space-y-1">
+                      <Label className="text-base">Permitir geração automática de protocolo</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Deixe desligado para fluxos comerciais, orçamento, cadastro e atendimento sem protocolo.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={protocolGenerationEnabled}
+                      onCheckedChange={(checked) => updatePolicy('enable_protocol_generation', checked)}
+                    />
+                  </div>
+
+                  <div className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
+                    Regra aplicada:
+                    <br />
+                    Cliente já identificado ou cadastrado: atendimento mais direto, sem repetir perguntas que o sistema já conhece.
+                    <br />
+                    Cliente ainda não identificado: a IA faz apenas as perguntas pertinentes para avançar.
+                  </div>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Memória de Conversa</CardTitle>
