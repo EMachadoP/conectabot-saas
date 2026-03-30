@@ -19,11 +19,12 @@ import {
 import { Button } from '@/components/ui/button';
 
 interface MessageActionsMenuProps {
-  onEdit: () => void;
+  canEdit?: boolean;
+  onEdit?: () => void;
   onDelete: () => void;
 }
 
-export function MessageActionsMenu({ onEdit, onDelete }: MessageActionsMenuProps) {
+export function MessageActionsMenu({ canEdit = false, onEdit, onDelete }: MessageActionsMenuProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const handleDelete = () => {
@@ -35,25 +36,27 @@ export function MessageActionsMenu({ onEdit, onDelete }: MessageActionsMenuProps
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <MoreVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onEdit}>
-            <Pencil className="h-4 w-4 mr-2" />
-            Editar
-          </DropdownMenuItem>
-          <DropdownMenuItem 
+          {canEdit && onEdit && (
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Editar
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
             onClick={() => setDeleteDialogOpen(true)}
             className="text-destructive focus:text-destructive"
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Excluir
+            Excluir mensagem
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

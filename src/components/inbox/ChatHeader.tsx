@@ -19,6 +19,7 @@ interface ChatHeaderProps {
   teams: any[];
   labels: any[];
   assignedTo?: string | null;
+  isContactBlocked?: boolean;
   onResolveConversation?: () => void;
   onReopenConversation?: () => void;
   onMarkUnread?: () => void;
@@ -29,6 +30,7 @@ interface ChatHeaderProps {
   onAddLabel?: (labelId: string) => void;
   onGenerateProtocol?: () => void;
   onAudioSettingsChange?: () => void;
+  onToggleBlockContact?: () => void;
   onBack?: () => void;
 }
 
@@ -44,6 +46,7 @@ export function ChatHeader({
   teams,
   labels,
   assignedTo,
+  isContactBlocked = false,
   onResolveConversation,
   onReopenConversation,
   onMarkUnread,
@@ -54,9 +57,9 @@ export function ChatHeader({
   onAddLabel,
   onGenerateProtocol,
   onAudioSettingsChange,
+  onToggleBlockContact,
   onBack,
 }: ChatHeaderProps) {
-
   return (
     <div className="h-14 shrink-0 border-b border-border flex items-center justify-between px-4">
       <div className="flex items-center gap-3">
@@ -77,6 +80,9 @@ export function ChatHeader({
             <p className="font-medium">{contact.name}</p>
             {contact.is_group && (
               <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">Grupo</span>
+            )}
+            {isContactBlocked && (
+              <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded">Bloqueado</span>
             )}
           </div>
           <p className="text-xs text-muted-foreground">
@@ -112,6 +118,7 @@ export function ChatHeader({
           teams={teams}
           labels={labels}
           assignedTo={assignedTo}
+          isContactBlocked={isContactBlocked}
           onResolve={onResolveConversation}
           onReopen={onReopenConversation}
           onMarkUnread={onMarkUnread}
@@ -120,6 +127,7 @@ export function ChatHeader({
           onAssignAgent={onAssignAgent}
           onAssignTeam={onAssignTeam}
           onAddLabel={onAddLabel}
+          onToggleBlockContact={onToggleBlockContact}
         />
       </div>
     </div>

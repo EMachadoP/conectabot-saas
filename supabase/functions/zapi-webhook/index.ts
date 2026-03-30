@@ -160,7 +160,7 @@ serve(async (req) => {
     // 4. Salvar/Atualizar Contato do Chat (Grupo ou Individual)
     let { data: contact } = await supabase
       .from('contacts')
-      .select('id, phone, lid, chat_lid')
+      .select('id, phone, lid, chat_lid, tags')
       .eq('workspace_id', workspaceId)
       .eq('chat_lid', chatIdentifier)
       .maybeSingle();
@@ -168,7 +168,7 @@ serve(async (req) => {
     if (!contact && chatIdentifier) {
       const contactByLid = await supabase
         .from('contacts')
-        .select('id, phone, lid, chat_lid')
+        .select('id, phone, lid, chat_lid, tags')
         .eq('workspace_id', workspaceId)
         .eq('lid', chatIdentifier)
         .maybeSingle();
@@ -179,7 +179,7 @@ serve(async (req) => {
     if (!contact && realPhone) {
       const contactByPhone = await supabase
         .from('contacts')
-        .select('id, phone, lid, chat_lid')
+        .select('id, phone, lid, chat_lid, tags')
         .eq('workspace_id', workspaceId)
         .eq('phone', realPhone)
         .maybeSingle();
@@ -459,3 +459,4 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: error.message }), { status: 200, headers: corsHeaders });
   }
 });
+

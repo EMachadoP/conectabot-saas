@@ -26,13 +26,11 @@ export default function InboxPage() {
   const [activeConvData, setActiveConvData] = useState<any>(null);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
 
-  // Hook customizado para gerenciar a lista e realtime global
   const { conversations, loading: loadingConversations } = useRealtimeInbox({
     onNewInboundMessage: playNotificationSound,
     userId: user?.id,
   });
 
-  // Hook para mensagens da conversa ativa
   const { messages, loading: loadingMessages } = useRealtimeMessages(activeConversationId);
 
   const fetchActiveConversationDetails = useCallback(async (id: string) => {
@@ -46,23 +44,61 @@ export default function InboxPage() {
       setActiveConvData(data);
       setActiveContact(data.contacts);
 
-      // Marcar como lida se houver mensagens não lidas
       if (data.unread_count > 0) {
         await supabase.from('conversations').update({ unread_count: 0 }).eq('id', id);
       }
     }
   }, []);
 
+  const toggleContactBlocked = useCallback(async () => {
+    if (!activeContact?.id || !activeConversationId) return;
+
+    const currentTags = Array.isArray(activeContact.tags) ? activeContact.tags : [];
+    const isBlocked = currentTags.includes('blocked');
+    const nextTags = isBlocked
+      ? currentTags.filter((tag: string) => tag !== 'blocked')
+      : [...new Set([...currentTags, 'blocked'])];
+
+    const { error } = await supabase
+      .from('contacts')
+      .update({ tags: nextTags })
+      .eq('id', activeContact.id);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: isBlocked ? 'Erro ao desbloquear contato' : 'Erro ao bloquear contato',
+        description: error.message,
+      });
+      return;
+    }
+
+    if (!isBlocked) {
+      await supabase
+        .from('conversations')
+        .update({ status: 'resolved', unread_count: 0 })
+        .eq('id', activeConversationId);
+    }
+
+    setActiveContact((current: any) => current ? { ...current, tags: nextTags } : current);
+    toast({
+      title: isBlocked ? 'Contato desbloqueado' : 'Contato bloqueado',
+      description: isBlocked
+        ? 'Novas mensagens voltarão a aparecer normalmente.'
+        : 'Novas mensagens desse contato serão ignoradas pelo sistema.',
+    });
+
+    await fetchActiveConversationDetails(activeConversationId);
+  }, [activeContact?.id, activeContact?.tags, activeConversationId, fetchActiveConversationDetails, toast]);
+
   useEffect(() => {
     if (activeConversationId) {
-      // Clear transient data immediately to prevent UI mixing
       setActiveContact(null);
       setActiveConvData(null);
       fetchActiveConversationDetails(activeConversationId);
     }
   }, [activeConversationId, fetchActiveConversationDetails]);
 
-  // Fetch agents for assignment
   useEffect(() => {
     const fetchAgents = async () => {
       if (!user) return;
@@ -80,7 +116,6 @@ export default function InboxPage() {
     fetchAgents();
   }, [user]);
 
-  // Sincronizar parâmetro da URL com estado local
   useEffect(() => {
     if (conversationIdParam && conversationIdParam !== activeConversationId) {
       setActiveConversationId(conversationIdParam);
@@ -88,8 +123,6 @@ export default function InboxPage() {
   }, [conversationIdParam, activeConversationId]);
 
   const handleSelectConversation = useCallback((id: string) => {
-    // Navigate updates the URL parameter, which in turn updates conversationIdParam
-    // and triggers our sync useEffect. This is the standard way to handle tab/list switches.
     navigate(`/inbox/${id}`);
   }, [navigate]);
 
@@ -104,24 +137,22 @@ export default function InboxPage() {
     }
 
     try {
-      // Obter sessão para Authorization Header
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
-      if (!token) throw new Error("Sessão perdida. Faça login novamente.");
+      if (!token) throw new Error('Sessão perdida. Faça login novamente.');
 
-      // Chamada direta via Fetch para debug de rede
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zapi-send-message`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           conversation_id: activeConversationId,
           content,
-          message_type: 'text'
-        })
+          message_type: 'text',
+        }),
       });
 
       if (!response.ok) {
@@ -137,9 +168,6 @@ export default function InboxPage() {
         }
         throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
       }
-
-      // Sucesso
-      // alert('Mensagem enviada!'); // Opcional, remover em produção
     } catch (error: any) {
       console.error('Erro ao enviar:', error);
       toast({
@@ -161,7 +189,6 @@ export default function InboxPage() {
 
       if (error) throw error;
 
-      // Optionally show success message
       console.log('Conversa marcada como resolvida');
     } catch (error: any) {
       console.error('Erro ao resolver conversa:', error);
@@ -223,6 +250,7 @@ export default function InboxPage() {
                   onSendMessage={handleSendMessage}
                   onResolveConversation={handleResolveConversation}
                   onAssignAgent={handleAssignAgent}
+                  onToggleBlockContact={toggleContactBlocked}
                   aiMode={activeConvData?.ai_mode}
                   aiPausedUntil={activeConvData?.ai_paused_until}
                   assignedTo={activeConvData?.assigned_to}
@@ -276,6 +304,7 @@ export default function InboxPage() {
                       onSendMessage={handleSendMessage}
                       onResolveConversation={handleResolveConversation}
                       onAssignAgent={handleAssignAgent}
+                      onToggleBlockContact={toggleContactBlocked}
                       aiMode={activeConvData?.ai_mode}
                       aiPausedUntil={activeConvData?.ai_paused_until}
                       assignedTo={activeConvData?.assigned_to}
@@ -287,7 +316,7 @@ export default function InboxPage() {
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-muted/10">
                     <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-                      <ChatSkeleton /> {/* Apenas como placeholder visual */}
+                      <ChatSkeleton />
                     </div>
                     <p className="text-lg font-medium">Suas conversas aparecem aqui</p>
                     <p className="text-sm">Selecione um contato na lista para iniciar o atendimento.</p>

@@ -47,6 +47,7 @@ interface ChatAreaProps {
   onSelectCondominium?: (condominiumId: string) => void;
   onProtocolCreated?: (code: string) => void;
   onAudioSettingsChange?: () => void;
+  onToggleBlockContact?: () => void;
   loading?: boolean;
   isMobile?: boolean;
   onBack?: () => void;
@@ -74,6 +75,7 @@ export function ChatArea(props: ChatAreaProps) {
   }
 
   const isResolved = props.conversationStatus === 'resolved';
+  const isContactBlocked = Array.isArray(contact.tags) && contact.tags.includes('blocked');
 
   return (
     <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
@@ -89,6 +91,7 @@ export function ChatArea(props: ChatAreaProps) {
         teams={props.teams || []}
         labels={props.labels || []}
         assignedTo={props.assignedTo}
+        isContactBlocked={isContactBlocked}
         onResolveConversation={props.onResolveConversation}
         onReopenConversation={props.onReopenConversation}
         onMarkUnread={props.onMarkUnread}
@@ -99,6 +102,7 @@ export function ChatArea(props: ChatAreaProps) {
         onAddLabel={props.onAddLabel}
         onGenerateProtocol={() => setProtocolModalOpen(true)}
         onAudioSettingsChange={props.onAudioSettingsChange}
+        onToggleBlockContact={props.onToggleBlockContact}
         onBack={props.onBack}
       />
 

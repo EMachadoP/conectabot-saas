@@ -142,13 +142,18 @@ export function ChatMessage({
     return <Check className="w-4 h-4" />;
   };
 
-  const canEditDelete = isOutgoing && messageType === 'text';
+  const canEdit = isOutgoing && messageType === 'text';
+  const canDelete = ['text', 'image', 'video', 'audio', 'document'].includes(messageType);
 
   return (
     <div className={cn('flex mb-2 group', isOutgoing ? 'justify-end' : 'justify-start')}>
-      {canEditDelete && isOutgoing && (
-        <div className="flex items-center mr-1">
-          <MessageActionsMenu onEdit={() => setEditModalOpen(true)} onDelete={handleDelete} />
+      {canDelete && (
+        <div className={cn('flex items-center', isOutgoing ? 'mr-1' : 'ml-1 order-2')}>
+          <MessageActionsMenu
+            canEdit={canEdit}
+            onEdit={canEdit ? () => setEditModalOpen(true) : undefined}
+            onDelete={handleDelete}
+          />
         </div>
       )}
 
@@ -160,11 +165,10 @@ export function ChatMessage({
             : 'bg-chat-incoming text-chat-incoming-foreground rounded-bl-none'
         )}
       >
-        {/* Nome do remetente (ajustado para aparecer em ambos os lados) */}
         {senderName && (
           <p className={cn(
-            "text-[11px] font-bold mb-1 truncate",
-            isOutgoing ? "text-primary-foreground/80" : "text-primary"
+            'text-[11px] font-bold mb-1 truncate',
+            isOutgoing ? 'text-primary-foreground/80' : 'text-primary'
           )}>
             {senderName}
           </p>
