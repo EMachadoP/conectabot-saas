@@ -16,6 +16,7 @@ import { useTenant } from '@/contexts/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useAuth } from '@/hooks/useAuth';
+import { getAppUrl } from '@/lib/app-url';
 
 type MemberRole = 'owner' | 'admin' | 'agent';
 
@@ -90,6 +91,7 @@ export default function TeamSettingsPage() {
   const [savingDisplayName, setSavingDisplayName] = useState(false);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [resendingAccessMemberId, setResendingAccessMemberId] = useState<string | null>(null);
 
   const canInviteAdmins = currentRole === 'owner' || currentRole === 'admin';
 
@@ -305,6 +307,49 @@ export default function TeamSettingsPage() {
     setEditNameTarget(null);
     setEditDisplayName('');
     loadMembers();
+  };
+
+  const handleResendAccessEmail = async (member: TeamMember) => {
+    const email = member.profile?.email;
+    if (!activeTenant?.id || !email) return;
+
+    setResendingAccessMemberId(member.user_id ?? member.id ?? email);
+    const { data, error } = await supabase.functions.invoke('resend-user-access-email', {
+      body: {
+        email,
+        role: member.role ?? 'agent',
+        workspace_id: activeTenant.id,
+        workspace_name: activeTenant.name,
+        redirect_to: `${getAppUrl()}/auth`,
+      },
+    });
+    setResendingAccessMemberId(null);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao reenviar acesso',
+        description: await parseFunctionError(error),
+      });
+      return;
+    }
+
+    if (data?.action_link) {
+      try {
+        await navigator.clipboard.writeText(data.action_link);
+      } catch {}
+
+      toast({
+        title: 'Link de ativação gerado',
+        description: 'O e-mail não saiu automaticamente. O link foi copiado para a área de transferência.',
+      });
+      return;
+    }
+
+    toast({
+      title: 'Acesso reenviado',
+      description: data?.message || `Novo e-mail enviado para ${email}.`,
+    });
   };
 
   const handleAdminPasswordUpdate = async () => {
@@ -667,6 +712,17 @@ export default function TeamSettingsPage() {
                       >
                         <Pencil className="w-4 h-4 mr-2" />
                         Nome
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        onClick={() => handleResendAccessEmail(member)}
+                        disabled={!member.profile?.email || resendingAccessMemberId === (member.user_id ?? member.id ?? member.profile?.email)}
+                      >
+                        <Mail className="w-4 h-4 mr-2" />
+                        {resendingAccessMemberId === (member.user_id ?? member.id ?? member.profile?.email)
+                          ? 'Reenviando...'
+                          : 'Reenviar email'}
                       </Button>
 
                       {memberRole !== 'owner' && (
