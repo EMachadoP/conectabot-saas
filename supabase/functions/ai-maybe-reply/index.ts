@@ -38,7 +38,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const { conversation_id } = await req.json();
+    const { conversation_id, trigger_message_id } = await req.json();
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -57,7 +57,7 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    const initialId = initialLatest?.id;
+    const initialId = trigger_message_id || initialLatest?.id;
 
     await new Promise(r => setTimeout(r, 5000));
 
@@ -70,7 +70,7 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    if (checkLatest && checkLatest.id !== initialId) {
+    if (checkLatest && initialId && checkLatest.id !== initialId) {
       console.log('[ai-maybe-reply] Debounce: Nova mensagem detectada. Abortando.');
       await supabase.from('ai_logs').insert({
         provider: 'system',
@@ -79,6 +79,18 @@ serve(async (req) => {
         error_message: 'Debounced',
       });
       return new Response(JSON.stringify({ success: false, reason: 'Debounced' }));
+    }
+
+    const latestInboundId = checkLatest?.id || initialId;
+    if (!latestInboundId) {
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'ai-maybe-reply',
+        conversation_id: conversation_id,
+        status: 'skipped',
+        error_message: 'Nenhuma mensagem inbound disponível para responder',
+      });
+      return new Response(JSON.stringify({ success: false, reason: 'No inbound message' }));
     }
 
     // 2. Carregar dados da conversa e configurações
@@ -147,6 +159,33 @@ serve(async (req) => {
     }
 
     // 4. Buscar histórico de mensagens
+    const { data: latestInboundMessage } = await supabase
+      .from('messages')
+      .select('id, sent_at')
+      .eq('id', latestInboundId)
+      .maybeSingle();
+
+    const { data: replyAlreadySent } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversation_id)
+      .eq('sender_type', 'agent')
+      .gte('sent_at', latestInboundMessage?.sent_at || new Date().toISOString())
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (replyAlreadySent) {
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'ai-maybe-reply',
+        conversation_id: conversation_id,
+        status: 'skipped',
+        error_message: 'Já existe resposta enviada para a última mensagem inbound',
+      });
+      return new Response(JSON.stringify({ success: false, reason: 'Reply already sent' }));
+    }
+
     const { data: msgs } = await supabase
       .from('messages')
       .select('content, sender_type, sender_name, sent_at')
@@ -349,7 +388,7 @@ serve(async (req) => {
         conversation_id,
         content: dedupedText,
         message_type: 'text',
-        sender_name: workspaceSettings?.agent_display_name?.trim() || 'Ana Mônica'
+        sender_name: workspaceSettings?.agent_display_name?.trim() || 'Ana Mônica',
       }),
     });
 

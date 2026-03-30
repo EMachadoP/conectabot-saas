@@ -427,7 +427,10 @@ serve(async (req) => {
         const aiTriggerResponse = await fetch(`${supabaseUrl}/functions/v1/ai-maybe-reply`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}` },
-          body: JSON.stringify({ conversation_id: conv.id }),
+          body: JSON.stringify({
+            conversation_id: conv.id,
+            trigger_message_id: msgResult.id,
+          }),
         }).catch(err => {
           console.error('[Webhook] Failed to trigger AI reply:', err);
           return null;
