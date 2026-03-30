@@ -402,12 +402,12 @@ export default function TeamSettingsPage() {
               <DialogTrigger asChild>
                 <Button variant="outline">
                   <KeyRound className="w-4 h-4 mr-2" />
-                  Cadastrar com senha
+                  Adicionar usuário
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Cadastrar usuário com senha</DialogTitle>
+                  <DialogTitle>Adicionar usuário com senha</DialogTitle>
                   <DialogDescription>
                     Crie o acesso diretamente neste workspace sem depender de convite por e-mail.
                   </DialogDescription>
@@ -465,7 +465,7 @@ export default function TeamSettingsPage() {
                     Cancelar
                   </Button>
                   <Button onClick={handleDirectCreate} disabled={creatingDirectUser}>
-                    {creatingDirectUser ? 'Cadastrando...' : 'Cadastrar usuário'}
+                    {creatingDirectUser ? 'Cadastrando...' : 'Adicionar usuário'}
                   </Button>
                 </DialogFooter>
               </DialogContent>

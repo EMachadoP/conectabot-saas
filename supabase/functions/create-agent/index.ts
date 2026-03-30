@@ -142,10 +142,29 @@ serve(async (req) => {
 
     const userId = userData.user.id;
 
-    if (team_id) {
+    if (workspace_id) {
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .upsert({
+          id: userId,
+          email,
+          name,
+          team_id,
+          tenant_id: workspace_id,
+          workspace_id,
+          is_active: true,
+        }, { onConflict: 'id' });
+
+      if (profileError) {
+        return new Response(JSON.stringify({ error: `Usuário criado, mas falhou ao preparar o perfil: ${profileError.message}` }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    } else if (team_id) {
       await supabaseAdmin
         .from('profiles')
-        .update({ team_id })
+        .update({ team_id, email, name })
         .eq('id', userId);
     }
 

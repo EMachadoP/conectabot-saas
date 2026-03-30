@@ -96,12 +96,53 @@ export default function AuthPage() {
     setIsSubmitting(false);
 
     if (error) {
+      const errorMessage = error.message || '';
       toast({
         variant: 'destructive',
         title: 'Erro ao entrar',
-        description: error.message === 'Invalid login credentials'
+        description: errorMessage === 'Invalid login credentials'
           ? 'Email ou senha incorretos'
-          : error.message,
+          : errorMessage.toLowerCase().includes('email not confirmed')
+          ? 'O usuário existe, mas o email ainda não foi confirmado.'
+          : errorMessage,
+      });
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const signedUser = sessionData.session?.user;
+
+    if (!signedUser) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao entrar',
+        description: 'A sessão não foi iniciada corretamente. Tente novamente.',
+      });
+      return;
+    }
+
+    const { data: memberships, error: membershipError } = await supabase
+      .from('tenant_members')
+      .select('tenant_id')
+      .eq('user_id', signedUser.id)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (membershipError) {
+      toast({
+        variant: 'destructive',
+        title: 'Acesso incompleto',
+        description: 'O login foi aceito, mas não foi possível validar o workspace do usuário.',
+      });
+      return;
+    }
+
+    if (!memberships || memberships.length === 0) {
+      await supabase.auth.signOut();
+      toast({
+        variant: 'destructive',
+        title: 'Usuário sem workspace',
+        description: 'Este usuário ainda não foi vinculado a um workspace ativo. Revise o cadastro na tela Equipe.',
       });
     }
   };
