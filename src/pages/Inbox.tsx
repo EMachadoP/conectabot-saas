@@ -27,7 +27,7 @@ export default function InboxPage() {
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [replyTarget, setReplyTarget] = useState<any | null>(null);
 
-  const { conversations, loading: loadingConversations } = useRealtimeInbox({
+  const { conversations, loading: loadingConversations, markConversationAsRead } = useRealtimeInbox({
     onNewInboundMessage: playNotificationSound,
     userId: user?.id,
   });
@@ -126,8 +126,13 @@ export default function InboxPage() {
 
   const handleSelectConversation = useCallback((id: string) => {
     setReplyTarget(null);
+    markConversationAsRead(id);
+    void supabase
+      .from('conversations')
+      .update({ unread_count: 0 })
+      .eq('id', id);
     navigate(`/inbox/${id}`);
-  }, [navigate]);
+  }, [markConversationAsRead, navigate]);
 
   const handleSendMessage = async (content: string) => {
     if (!user) {

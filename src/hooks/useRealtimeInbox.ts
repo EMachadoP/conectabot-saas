@@ -24,6 +24,16 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
   const processedMessageIds = useRef<Set<string>>(new Set());
   const lastFetchTime = useRef<number>(0);
 
+  const markConversationAsRead = useCallback((conversationId: string) => {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, unread_count: 0 }
+          : conversation
+      )
+    );
+  }, []);
+
   const fetchConversations = useCallback(async () => {
     // Throttle fetches to max once every 300ms
     const now = Date.now();
@@ -110,5 +120,10 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
     };
   }, [fetchConversations, onNewInboundMessage]);
 
-  return { conversations, loading, refetch: fetchConversations };
+  return {
+    conversations,
+    loading,
+    refetch: fetchConversations,
+    markConversationAsRead,
+  };
 }
