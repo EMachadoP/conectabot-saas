@@ -186,6 +186,7 @@ export function ChatArea(props: ChatAreaProps) {
           onOpenChange={setIdentifyModalOpen}
           contactId={contact.id}
           conversationId={conversationId}
+          workspaceId={contact.workspace_id ?? null}
           existingParticipant={participant}
           onSaved={refetchParticipant}
         />

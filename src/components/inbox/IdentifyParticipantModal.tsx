@@ -27,6 +27,7 @@ interface IdentifyParticipantModalProps {
   onOpenChange: (open: boolean) => void;
   contactId: string;
   conversationId: string;
+  workspaceId?: string | null;
   existingParticipant?: Participant | null;
   onSaved: () => void;
 }
@@ -36,6 +37,7 @@ export function IdentifyParticipantModal({
   onOpenChange,
   contactId,
   conversationId,
+  workspaceId,
   existingParticipant,
   onSaved,
 }: IdentifyParticipantModalProps) {
@@ -106,21 +108,45 @@ export function IdentifyParticipantModal({
       return;
     }
 
-    if (!activeTenant) {
-      toast.error('Nenhum workspace ativo selecionado');
-      return;
-    }
-
     setLoading(true);
 
     try {
+      let resolvedWorkspaceId = workspaceId || activeTenant?.id || null;
+
+      if (!resolvedWorkspaceId) {
+        const { data: conversationData, error: conversationError } = await supabase
+          .from('conversations')
+          .select('workspace_id')
+          .eq('id', conversationId)
+          .maybeSingle();
+
+        if (conversationError) throw conversationError;
+        resolvedWorkspaceId = conversationData?.workspace_id ?? null;
+      }
+
+      if (!resolvedWorkspaceId) {
+        const { data: contactData, error: contactError } = await supabase
+          .from('contacts')
+          .select('workspace_id')
+          .eq('id', contactId)
+          .maybeSingle();
+
+        if (contactError) throw contactError;
+        resolvedWorkspaceId = contactData?.workspace_id ?? null;
+      }
+
+      if (!resolvedWorkspaceId) {
+        toast.error('Nenhum workspace ativo selecionado');
+        return;
+      }
+
       const finalEntityId = await resolveEntityId(companyName);
 
       if (existingParticipant) {
         const { error } = await supabase
           .from('participants')
           .update({
-            workspace_id: activeTenant.id,
+            workspace_id: resolvedWorkspaceId,
             name: name.trim(),
             role_type: roleType.trim() || null,
             entity_id: finalEntityId,
@@ -133,7 +159,7 @@ export function IdentifyParticipantModal({
         const { data: newParticipant, error } = await supabase
           .from('participants')
           .insert({
-            workspace_id: activeTenant.id,
+            workspace_id: resolvedWorkspaceId,
             contact_id: contactId,
             name: name.trim(),
             role_type: roleType.trim() || null,
