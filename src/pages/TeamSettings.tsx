@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Users, Shield, UserRound, Mail, RefreshCw, UserPlus, Trash2 } from 'lucide-react';
+import { FunctionsHttpError } from '@supabase/supabase-js';
+import { Users, Shield, UserRound, Mail, RefreshCw, UserPlus, Trash2, KeyRound } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +48,19 @@ const memberRoleLabels: Record<MemberRole, string> = {
   agent: 'Agente',
 };
 
+const parseFunctionError = async (error: unknown) => {
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const response = await error.context.json();
+      return response?.error || error.message;
+    } catch {
+      return error.message;
+    }
+  }
+
+  return error instanceof Error ? error.message : 'Erro inesperado';
+};
+
 export default function TeamSettingsPage() {
   const { activeTenant } = useTenant();
   const { role: currentRole } = useUserRole();
@@ -58,6 +72,17 @@ export default function TeamSettingsPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'agent'>('agent');
   const [inviting, setInviting] = useState(false);
+  const [directCreateOpen, setDirectCreateOpen] = useState(false);
+  const [directUserName, setDirectUserName] = useState('');
+  const [directUserEmail, setDirectUserEmail] = useState('');
+  const [directUserPassword, setDirectUserPassword] = useState('');
+  const [directUserRole, setDirectUserRole] = useState<'admin' | 'agent'>('agent');
+  const [creatingDirectUser, setCreatingDirectUser] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordTarget, setPasswordTarget] = useState<TeamMember | null>(null);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
+  const [savingAdminPassword, setSavingAdminPassword] = useState(false);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
@@ -171,6 +196,137 @@ export default function TeamSettingsPage() {
     loadMembers();
   };
 
+  const handleDirectCreate = async () => {
+    if (!activeTenant?.id) return;
+
+    if (!directUserName.trim() || !directUserEmail.trim() || !directUserPassword.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Preencha os dados do usuário',
+        description: 'Nome, e-mail e senha são obrigatórios.',
+      });
+      return;
+    }
+
+    const hasMinLength = directUserPassword.length >= 8;
+    const hasLowercase = /[a-z]/.test(directUserPassword);
+    const hasUppercase = /[A-Z]/.test(directUserPassword);
+    const hasNumber = /[0-9]/.test(directUserPassword);
+
+    if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber) {
+      toast({
+        variant: 'destructive',
+        title: 'Senha fraca',
+        description: 'A senha deve ter pelo menos 8 caracteres, incluindo letras maiúsculas, minúsculas e números.',
+      });
+      return;
+    }
+
+    setCreatingDirectUser(true);
+    const { error } = await supabase.functions.invoke('create-agent', {
+      body: {
+        name: directUserName.trim(),
+        email: directUserEmail.trim().toLowerCase(),
+        password: directUserPassword,
+        workspace_id: activeTenant.id,
+        workspace_role: directUserRole,
+      },
+    });
+    setCreatingDirectUser(false);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao cadastrar usuário',
+        description: await parseFunctionError(error),
+      });
+      return;
+    }
+
+    toast({
+      title: 'Usuário cadastrado',
+      description: `${directUserEmail.trim()} já pode entrar com a senha definida agora.`,
+    });
+
+    setDirectCreateOpen(false);
+    setDirectUserName('');
+    setDirectUserEmail('');
+    setDirectUserPassword('');
+    setDirectUserRole('agent');
+    loadMembers();
+  };
+
+  const openPasswordDialog = (member: TeamMember) => {
+    setPasswordTarget(member);
+    setAdminPassword('');
+    setAdminPasswordConfirm('');
+    setPasswordDialogOpen(true);
+  };
+
+  const handleAdminPasswordUpdate = async () => {
+    if (!activeTenant?.id || !passwordTarget?.user_id) return;
+
+    if (!adminPassword.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Informe a nova senha',
+        description: 'Digite a senha que será aplicada ao usuário.',
+      });
+      return;
+    }
+
+    if (adminPassword !== adminPasswordConfirm) {
+      toast({
+        variant: 'destructive',
+        title: 'As senhas não conferem',
+        description: 'Repita a mesma senha nos dois campos.',
+      });
+      return;
+    }
+
+    const hasMinLength = adminPassword.length >= 8;
+    const hasLowercase = /[a-z]/.test(adminPassword);
+    const hasUppercase = /[A-Z]/.test(adminPassword);
+    const hasNumber = /[0-9]/.test(adminPassword);
+
+    if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber) {
+      toast({
+        variant: 'destructive',
+        title: 'Senha fraca',
+        description: 'A senha deve ter pelo menos 8 caracteres, incluindo letras maiúsculas, minúsculas e números.',
+      });
+      return;
+    }
+
+    setSavingAdminPassword(true);
+    const { error } = await supabase.functions.invoke('admin-set-user-password', {
+      body: {
+        workspace_id: activeTenant.id,
+        target_user_id: passwordTarget.user_id,
+        password: adminPassword,
+      },
+    });
+    setSavingAdminPassword(false);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao alterar senha',
+        description: await parseFunctionError(error),
+      });
+      return;
+    }
+
+    toast({
+      title: 'Senha atualizada',
+      description: `A senha de ${passwordTarget.profile?.email ?? 'usuário'} foi alterada com sucesso.`,
+    });
+    setPasswordDialogOpen(false);
+    setPasswordTarget(null);
+    setAdminPassword('');
+    setAdminPasswordConfirm('');
+  };
+
   const handleRoleChange = async (member: TeamMember, nextRole: 'admin' | 'agent') => {
     if (!activeTenant?.id || !member.user_id) return;
 
@@ -241,6 +397,79 @@ export default function TeamSettingsPage() {
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Atualizar
             </Button>
+
+            <Dialog open={directCreateOpen} onOpenChange={setDirectCreateOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  Cadastrar com senha
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Cadastrar usuário com senha</DialogTitle>
+                  <DialogDescription>
+                    Crie o acesso diretamente neste workspace sem depender de convite por e-mail.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="direct-user-name">Nome</Label>
+                    <Input
+                      id="direct-user-name"
+                      placeholder="Nome completo"
+                      value={directUserName}
+                      onChange={(event) => setDirectUserName(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="direct-user-email">E-mail</Label>
+                    <Input
+                      id="direct-user-email"
+                      type="email"
+                      placeholder="pessoa@empresa.com"
+                      value={directUserEmail}
+                      onChange={(event) => setDirectUserEmail(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="direct-user-password">Senha inicial</Label>
+                    <Input
+                      id="direct-user-password"
+                      type="password"
+                      placeholder="Minimo 8 caracteres"
+                      value={directUserPassword}
+                      onChange={(event) => setDirectUserPassword(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="direct-user-role">Nivel de acesso</Label>
+                    <Select value={directUserRole} onValueChange={(value: 'admin' | 'agent') => setDirectUserRole(value)}>
+                      <SelectTrigger id="direct-user-role">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {canInviteAdmins && <SelectItem value="admin">Administrador</SelectItem>}
+                        <SelectItem value="agent">Agente</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDirectCreateOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleDirectCreate} disabled={creatingDirectUser}>
+                    {creatingDirectUser ? 'Cadastrando...' : 'Cadastrar usuário'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
               <DialogTrigger asChild>
@@ -410,6 +639,15 @@ export default function TeamSettingsPage() {
                         </Button>
                       )}
 
+                      <Button
+                        variant="outline"
+                        onClick={() => openPasswordDialog(member)}
+                        disabled={!member.user_id || member.status !== 'active'}
+                      >
+                        <KeyRound className="w-4 h-4 mr-2" />
+                        Senha
+                      </Button>
+
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="outline" disabled={disableRemove}>
@@ -439,6 +677,60 @@ export default function TeamSettingsPage() {
             })}
           </CardContent>
         </Card>
+
+        <Dialog
+          open={passwordDialogOpen}
+          onOpenChange={(open) => {
+            setPasswordDialogOpen(open);
+            if (!open) {
+              setPasswordTarget(null);
+              setAdminPassword('');
+              setAdminPasswordConfirm('');
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Alterar senha do usuário</DialogTitle>
+              <DialogDescription>
+                Defina uma nova senha para {passwordTarget?.profile?.email ?? 'este usuário'}.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="admin-password">Nova senha</Label>
+                <Input
+                  id="admin-password"
+                  type="password"
+                  placeholder="Minimo 8 caracteres"
+                  value={adminPassword}
+                  onChange={(event) => setAdminPassword(event.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="admin-password-confirm">Confirmar senha</Label>
+                <Input
+                  id="admin-password-confirm"
+                  type="password"
+                  placeholder="Repita a senha"
+                  value={adminPasswordConfirm}
+                  onChange={(event) => setAdminPasswordConfirm(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPasswordDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleAdminPasswordUpdate} disabled={savingAdminPassword}>
+                {savingAdminPassword ? 'Salvando...' : 'Salvar senha'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );

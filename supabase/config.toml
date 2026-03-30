@@ -30,6 +30,9 @@ verify_jwt = false
 [functions.create-agent]
 verify_jwt = false
 
+[functions.admin-set-user-password]
+verify_jwt = false
+
 [functions.ai-generate-reply]
 verify_jwt = false
 

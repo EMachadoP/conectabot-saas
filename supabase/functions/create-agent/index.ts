@@ -21,44 +21,23 @@ serve(async (req) => {
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Não autorizado' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Não autorizado' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const token = authHeader.replace('Bearer ', '');
-
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Token inválido' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
-    }
-
-    const { data: roles, error: rolesError } = await supabaseAdmin
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id);
-
-    if (rolesError) {
-      return new Response(
-        JSON.stringify({ error: 'Erro ao verificar permissões' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
-    }
-
-    const isAdmin = roles?.some((entry) => entry.role === 'admin');
-    if (!isAdmin) {
-      return new Response(
-        JSON.stringify({ error: 'Acesso negado - Requer permissão de administrador' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Token inválido' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const rawBody = await req.json();
@@ -69,25 +48,63 @@ serve(async (req) => {
     const workspace_id = typeof rawBody.workspace_id === 'string' && UUID_REGEX.test(rawBody.workspace_id) ? rawBody.workspace_id : null;
     const workspace_role = typeof rawBody.workspace_role === 'string' ? rawBody.workspace_role.trim().toLowerCase() : 'agent';
 
+    const { data: roles, error: rolesError } = await supabaseAdmin
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id);
+
+    if (rolesError) {
+      return new Response(JSON.stringify({ error: 'Erro ao verificar permissões' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const isPlatformAdmin = roles?.some((entry) => entry.role === 'admin') ?? false;
+    let canManageWorkspace = false;
+
+    if (workspace_id) {
+      const { data, error } = await supabaseAdmin.rpc('platform_can_manage_workspace', {
+        p_workspace_id: workspace_id,
+        p_user_id: user.id,
+      });
+
+      if (error) {
+        return new Response(JSON.stringify({ error: 'Erro ao validar permissões do workspace' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      canManageWorkspace = Boolean(data);
+    }
+
+    if (!isPlatformAdmin && !canManageWorkspace) {
+      return new Response(JSON.stringify({ error: 'Acesso negado - Requer administração da plataforma ou do workspace' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (!email || !password || !name) {
-      return new Response(
-        JSON.stringify({ error: 'Email, senha e nome são obrigatórios' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Email, senha e nome são obrigatórios' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     if (!EMAIL_REGEX.test(email)) {
-      return new Response(
-        JSON.stringify({ error: 'Formato de email inválido' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Formato de email inválido' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     if (name.length < 2 || name.length > 100) {
-      return new Response(
-        JSON.stringify({ error: 'Nome deve ter entre 2 e 100 caracteres' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Nome deve ter entre 2 e 100 caracteres' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const hasMinLength = password.length >= 8;
@@ -96,38 +113,17 @@ serve(async (req) => {
     const hasNumber = /[0-9]/.test(password);
 
     if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber) {
-      return new Response(
-        JSON.stringify({ error: 'Senha deve ter pelo menos 8 caracteres, incluindo maiúsculas, minúsculas e números' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: 'Senha deve ter pelo menos 8 caracteres, incluindo maiúsculas, minúsculas e números' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     if (workspace_id && !ALLOWED_WORKSPACE_ROLES.has(workspace_role)) {
-      return new Response(
-        JSON.stringify({ error: 'Permissão do workspace inválida. Use admin ou agent' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
-    }
-
-    if (workspace_id) {
-      const { data: canManage, error: manageError } = await supabaseAdmin.rpc('platform_can_manage_workspace', {
-        p_workspace_id: workspace_id,
-        p_user_id: user.id,
+      return new Response(JSON.stringify({ error: 'Permissão do workspace inválida. Use admin ou agent' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-
-      if (manageError) {
-        return new Response(
-          JSON.stringify({ error: 'Erro ao validar permissões do workspace' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
-      }
-
-      if (!canManage) {
-        return new Response(
-          JSON.stringify({ error: 'Apenas administradores da plataforma ou do workspace podem cadastrar membros' }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
-      }
     }
 
     const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
@@ -138,10 +134,10 @@ serve(async (req) => {
     });
 
     if (createError) {
-      return new Response(
-        JSON.stringify({ error: createError.message }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ error: createError.message }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const userId = userData.user.id;
@@ -177,10 +173,10 @@ serve(async (req) => {
         }, { onConflict: 'tenant_id,user_id' });
 
       if (tenantMemberError) {
-        return new Response(
-          JSON.stringify({ error: `Usuário criado, mas falhou ao vincular ao workspace: ${tenantMemberError.message}` }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ error: `Usuário criado, mas falhou ao vincular ao workspace: ${tenantMemberError.message}` }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
 
       const { error: claimSyncError } = await supabaseAdmin.rpc('sync_user_workspace_claims', {
@@ -192,21 +188,20 @@ serve(async (req) => {
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        user_id: userId,
-        workspace_id,
-        workspace_role: workspace_id ? workspace_role : null,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    );
+    return new Response(JSON.stringify({
+      success: true,
+      user_id: userId,
+      workspace_id,
+      workspace_role: workspace_id ? workspace_role : null,
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error) {
     console.error('[CREATE-AGENT] Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    );
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
