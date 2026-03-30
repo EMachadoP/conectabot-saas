@@ -556,7 +556,8 @@ export default function AdminAIPage() {
       fetchData();
     } catch (error) {
       console.error('Error saving provider:', error);
-      toast({ variant: 'destructive', title: 'Erro', description: 'Falha ao salvar provedor' });
+      const message = error instanceof Error ? error.message : 'Falha ao salvar provedor';
+      toast({ variant: 'destructive', title: 'Erro', description: message });
     }
   };
 
