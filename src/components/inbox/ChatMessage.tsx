@@ -26,6 +26,9 @@ interface ChatMessageProps {
   senderName?: string | null;
   isAIGenerated?: boolean;
   transcript?: string | null;
+  replyPreview?: string | null;
+  replySenderName?: string | null;
+  onReply?: () => void;
   onMessageDeleted?: (messageId: string) => void;
   onMessageUpdated?: (messageId: string, newContent: string) => void;
 }
@@ -44,6 +47,9 @@ export function ChatMessage({
   senderName,
   isAIGenerated,
   transcript,
+  replyPreview,
+  replySenderName,
+  onReply,
   onMessageDeleted,
   onMessageUpdated,
 }: ChatMessageProps) {
@@ -152,6 +158,7 @@ export function ChatMessage({
           <MessageActionsMenu
             canEdit={canEdit}
             onEdit={canEdit ? () => setEditModalOpen(true) : undefined}
+            onReply={onReply}
             onDelete={handleDelete}
           />
         </div>
@@ -172,6 +179,20 @@ export function ChatMessage({
           )}>
             {senderName}
           </p>
+        )}
+
+        {(replyPreview || replySenderName) && (
+          <div
+            className={cn(
+              'mb-2 rounded-md border-l-2 px-2 py-1 text-xs',
+              isOutgoing
+                ? 'border-primary-foreground/70 bg-primary-foreground/10 text-primary-foreground/90'
+                : 'border-primary bg-muted/80 text-muted-foreground'
+            )}
+          >
+            <p className="font-semibold truncate">{replySenderName || 'Mensagem respondida'}</p>
+            <p className="truncate">{replyPreview || 'Mensagem sem texto'}</p>
+          </div>
         )}
 
         {renderMedia()}

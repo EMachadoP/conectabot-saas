@@ -25,6 +25,7 @@ export default function InboxPage() {
   const [activeContact, setActiveContact] = useState<any>(null);
   const [activeConvData, setActiveConvData] = useState<any>(null);
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+  const [replyTarget, setReplyTarget] = useState<any | null>(null);
 
   const { conversations, loading: loadingConversations } = useRealtimeInbox({
     onNewInboundMessage: playNotificationSound,
@@ -95,6 +96,7 @@ export default function InboxPage() {
     if (activeConversationId) {
       setActiveContact(null);
       setActiveConvData(null);
+      setReplyTarget(null);
       fetchActiveConversationDetails(activeConversationId);
     }
   }, [activeConversationId, fetchActiveConversationDetails]);
@@ -123,6 +125,7 @@ export default function InboxPage() {
   }, [conversationIdParam, activeConversationId]);
 
   const handleSelectConversation = useCallback((id: string) => {
+    setReplyTarget(null);
     navigate(`/inbox/${id}`);
   }, [navigate]);
 
@@ -152,6 +155,7 @@ export default function InboxPage() {
           conversation_id: activeConversationId,
           content,
           message_type: 'text',
+          reply_to_message_id: replyTarget?.id ?? null,
         }),
       });
 
@@ -168,6 +172,8 @@ export default function InboxPage() {
         }
         throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
       }
+
+      setReplyTarget(null);
     } catch (error: any) {
       console.error('Erro ao enviar:', error);
       toast({
@@ -248,6 +254,9 @@ export default function InboxPage() {
                   conversationId={activeConversationId}
                   conversationStatus={activeConvData?.status}
                   onSendMessage={handleSendMessage}
+                  onReplyMessage={setReplyTarget}
+                  replyTarget={replyTarget}
+                  onCancelReply={() => setReplyTarget(null)}
                   onResolveConversation={handleResolveConversation}
                   onAssignAgent={handleAssignAgent}
                   onToggleBlockContact={toggleContactBlocked}
@@ -302,6 +311,9 @@ export default function InboxPage() {
                       conversationId={activeConversationId}
                       conversationStatus={activeConvData?.status}
                       onSendMessage={handleSendMessage}
+                      onReplyMessage={setReplyTarget}
+                      replyTarget={replyTarget}
+                      onCancelReply={() => setReplyTarget(null)}
                       onResolveConversation={handleResolveConversation}
                       onAssignAgent={handleAssignAgent}
                       onToggleBlockContact={toggleContactBlocked}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { MoreVertical, Pencil, Reply, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,10 +21,11 @@ import { Button } from '@/components/ui/button';
 interface MessageActionsMenuProps {
   canEdit?: boolean;
   onEdit?: () => void;
+  onReply?: () => void;
   onDelete: () => void;
 }
 
-export function MessageActionsMenu({ canEdit = false, onEdit, onDelete }: MessageActionsMenuProps) {
+export function MessageActionsMenu({ canEdit = false, onEdit, onReply, onDelete }: MessageActionsMenuProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const handleDelete = () => {
@@ -45,6 +46,12 @@ export function MessageActionsMenu({ canEdit = false, onEdit, onDelete }: Messag
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {onReply && (
+            <DropdownMenuItem onClick={onReply}>
+              <Reply className="h-4 w-4 mr-2" />
+              Responder
+            </DropdownMenuItem>
+          )}
           {canEdit && onEdit && (
             <DropdownMenuItem onClick={onEdit}>
               <Pencil className="h-4 w-4 mr-2" />

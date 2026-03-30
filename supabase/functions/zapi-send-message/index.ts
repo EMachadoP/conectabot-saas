@@ -91,6 +91,7 @@ serve(async (req) => {
 
     const json = await req.json();
     ({ conversation_id, content } = json);
+    const reply_to_message_id = typeof json.reply_to_message_id === 'string' ? json.reply_to_message_id : null;
     const { message_type, media_url, sender_name: overrideSenderName } = json;
 
     if (overrideSenderName) senderName = overrideSenderName;
@@ -137,6 +138,18 @@ serve(async (req) => {
 
     console.log(`[Send Message] Enviando para ${recipient} via instância ${instanceId}`);
 
+    let replySource: any = null;
+    if (reply_to_message_id) {
+      const { data: originalMessage } = await supabaseAdmin
+        .from('messages')
+        .select('id, provider_message_id, content, sender_name, agent_name, message_type')
+        .eq('id', reply_to_message_id)
+        .eq('conversation_id', conversation_id)
+        .maybeSingle();
+
+      replySource = originalMessage;
+    }
+
     // Formatar mensagem
     // Se for áudio, não adiciona prefixo de nome
     let finalContent = content;
@@ -150,6 +163,9 @@ serve(async (req) => {
         finalContent = `*${senderName}:*\n${content}`;
       }
       body.message = finalContent;
+      if (replySource?.provider_message_id) {
+        body.messageId = replySource.provider_message_id;
+      }
     } else if (message_type === 'image') {
       endpoint = '/send-image';
       body.image = media_url;
@@ -193,6 +209,10 @@ serve(async (req) => {
       sent_at: new Date().toISOString(),
       provider: 'zapi',
       provider_message_id: result.messageId || result.zapiMessageId,
+      reply_to_message_id: replySource?.id ?? null,
+      reply_to_provider_message_id: replySource?.provider_message_id ?? null,
+      reply_preview: replySource?.content?.slice(0, 160) ?? null,
+      reply_sender_name: replySource?.agent_name || replySource?.sender_name || null,
       status: 'sent',
       direction: 'outbound'
     });

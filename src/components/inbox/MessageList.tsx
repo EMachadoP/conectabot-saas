@@ -9,6 +9,7 @@ interface MessageListProps {
   conversationId?: string | null;
   profiles: any[];
   contactName?: string;
+  onReplyMessage?: (message: any) => void;
 }
 
 const MemoizedChatMessage = memo(ChatMessage);
@@ -20,7 +21,7 @@ const isPhoneNumber = (str: string | null | undefined): boolean => {
   return digitsOnly.length >= 8 && /^\d+$/.test(digitsOnly);
 };
 
-export function MessageList({ messages, loading, conversationId, profiles, contactName }: MessageListProps) {
+export function MessageList({ messages, loading, conversationId, profiles, contactName, onReplyMessage }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const prevLength = useRef(messages.length);
 
@@ -95,6 +96,18 @@ export function MessageList({ messages, loading, conversationId, profiles, conta
               senderName={name}
               isAIGenerated={isOutgoing && !msg.sender_id && !msg.agent_id}
               transcript={msg.transcript}
+              replyPreview={
+                messages.find((candidate) => candidate.id === (msg as any).reply_to_message_id)?.content ||
+                (msg as any).reply_preview ||
+                null
+              }
+              replySenderName={
+                messages.find((candidate) => candidate.id === (msg as any).reply_to_message_id)?.agent_name ||
+                messages.find((candidate) => candidate.id === (msg as any).reply_to_message_id)?.sender_name ||
+                (msg as any).reply_sender_name ||
+                null
+              }
+              onReply={() => onReplyMessage?.(msg)}
             />
           );
         })}

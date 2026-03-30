@@ -34,6 +34,9 @@ interface ChatAreaProps {
   audioAutoTranscribe?: boolean;
   currentUserId?: string;
   onSendMessage: (content: string) => void;
+  onReplyMessage?: (message: any) => void;
+  replyTarget?: any | null;
+  onCancelReply?: () => void;
   onSendFile?: (file: File) => void;
   onResolveConversation?: () => void;
   onReopenConversation?: () => void;
@@ -150,6 +153,7 @@ export function ChatArea(props: ChatAreaProps) {
         conversationId={conversationId}
         profiles={props.profiles}
         contactName={participant?.name || contact?.name}
+        onReplyMessage={props.onReplyMessage}
       />
 
       {conversationId && (
@@ -168,6 +172,12 @@ export function ChatArea(props: ChatAreaProps) {
         onSendFile={props.onSendFile}
         isResolved={isResolved}
         isMobile={!!isMobile}
+        replyTarget={props.replyTarget ? {
+          senderName: props.replyTarget.agent_name || props.replyTarget.sender_name,
+          content: props.replyTarget.content,
+          messageType: props.replyTarget.message_type,
+        } : null}
+        onCancelReply={props.onCancelReply}
       />
 
       {contact?.id && conversationId && (
