@@ -104,6 +104,7 @@ serve(async (req) => {
 
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(target_user_id, {
       password,
+      email_confirm: true,
     });
 
     if (updateError) {

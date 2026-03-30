@@ -180,6 +180,7 @@ serve(async (req) => {
     } else {
       const { error: updateExistingUserError } = await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
         password,
+        email_confirm: true,
         user_metadata: {
           ...(authUser.user_metadata ?? {}),
           name,
