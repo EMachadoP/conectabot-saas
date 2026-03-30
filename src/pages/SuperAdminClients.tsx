@@ -81,6 +81,11 @@ export default function SuperAdminClientsPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'agent'>('agent');
   const [invitingMember, setInvitingMember] = useState(false);
+  const [directUserName, setDirectUserName] = useState('');
+  const [directUserEmail, setDirectUserEmail] = useState('');
+  const [directUserPassword, setDirectUserPassword] = useState('');
+  const [directUserRole, setDirectUserRole] = useState<'admin' | 'agent'>('agent');
+  const [creatingDirectUser, setCreatingDirectUser] = useState(false);
   const [workspaceToReset, setWorkspaceToReset] = useState<WorkspaceOverview | null>(null);
   const [workspaceToArchive, setWorkspaceToArchive] = useState<WorkspaceOverview | null>(null);
   const [workspaceToTrial, setWorkspaceToTrial] = useState<WorkspaceOverview | null>(null);
@@ -241,6 +246,77 @@ export default function SuperAdminClientsPage() {
     });
     setInviteEmail('');
     setInviteRole('agent');
+    await loadWorkspaceMembers(workspaceToManage);
+    await fetchWorkspaces();
+  };
+
+  const handleCreateDirectMember = async () => {
+    if (!workspaceToManage) return;
+
+    if (!directUserName.trim() || !directUserEmail.trim() || !directUserPassword.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Preencha os dados do usuário',
+        description: 'Nome, e-mail e senha são obrigatórios para cadastro direto.',
+      });
+      return;
+    }
+
+    const hasMinLength = directUserPassword.length >= 8;
+    const hasLowercase = /[a-z]/.test(directUserPassword);
+    const hasUppercase = /[A-Z]/.test(directUserPassword);
+    const hasNumber = /[0-9]/.test(directUserPassword);
+
+    if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber) {
+      toast({
+        variant: 'destructive',
+        title: 'Senha fraca',
+        description: 'A senha deve ter pelo menos 8 caracteres, incluindo letras maiúsculas, minúsculas e números.',
+      });
+      return;
+    }
+
+    setCreatingDirectUser(true);
+    const { data, error } = await supabase.functions.invoke('create-agent', {
+      body: {
+        name: directUserName.trim(),
+        email: directUserEmail.trim().toLowerCase(),
+        password: directUserPassword,
+        workspace_id: workspaceToManage.workspace_id,
+        workspace_role: directUserRole,
+      },
+    });
+    setCreatingDirectUser(false);
+
+    if (error) {
+      let description = error.message;
+
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const response = await error.context.json();
+          description = response?.error || description;
+        } catch {
+          // noop
+        }
+      }
+
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao cadastrar usuário',
+        description,
+      });
+      return;
+    }
+
+    toast({
+      title: 'Usuário cadastrado',
+      description: `${directUserEmail.trim()} já pode entrar no cliente ${workspaceToManage.workspace_name} com a senha definida agora.`,
+    });
+
+    setDirectUserName('');
+    setDirectUserEmail('');
+    setDirectUserPassword('');
+    setDirectUserRole('agent');
     await loadWorkspaceMembers(workspaceToManage);
     await fetchWorkspaces();
   };
@@ -900,3 +976,6 @@ export default function SuperAdminClientsPage() {
     </AppLayout>
   );
 }
+
+
+

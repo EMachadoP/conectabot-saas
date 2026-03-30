@@ -6,6 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ALLOWED_WORKSPACE_ROLES = new Set(['admin', 'agent']);
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -13,116 +17,79 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    console.log('[CREATE-AGENT] Function invoked');
-
-    // Validate caller authentication
     const authHeader = req.headers.get('Authorization');
-    console.log('[CREATE-AGENT] Auth header present:', !!authHeader);
-
     if (!authHeader) {
-      console.log('[CREATE-AGENT] No authorization header provided');
       return new Response(
         JSON.stringify({ error: 'Não autorizado' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
     const token = authHeader.replace('Bearer ', '');
-    console.log('[CREATE-AGENT] Token extracted, length:', token.length);
 
-    // Use service role key to validate the token
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    console.log('[CREATE-AGENT] Validating token...');
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    console.log('[CREATE-AGENT] Token validation - User:', !!user, 'Error:', !!authError);
-
     if (authError || !user) {
-      console.log('[CREATE-AGENT] Invalid token:', authError?.message);
       return new Response(
         JSON.stringify({ error: 'Token inválido' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    console.log('[CREATE-AGENT] User authenticated:', user.id);
-
-    // Check if caller has admin role
     const { data: roles, error: rolesError } = await supabaseAdmin
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id);
 
-    console.log('[CREATE-AGENT] Roles query - Data:', roles, 'Error:', !!rolesError);
-
     if (rolesError) {
-      console.error('[CREATE-AGENT] Error fetching roles:', rolesError);
       return new Response(
         JSON.stringify({ error: 'Erro ao verificar permissões' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    const isAdmin = roles?.some(r => r.role === 'admin');
-    console.log('[CREATE-AGENT] Is admin?', isAdmin);
-
+    const isAdmin = roles?.some((entry) => entry.role === 'admin');
     if (!isAdmin) {
-      console.log('[CREATE-AGENT] User is not admin - REJECTING:', user.id);
       return new Response(
         JSON.stringify({ error: 'Acesso negado - Requer permissão de administrador' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    console.log('[CREATE-AGENT] Admin user creating agent:', user.id);
-
     const rawBody = await req.json();
-
-    // Input validation
-    const MAX_NAME_LENGTH = 100;
-    const MAX_EMAIL_LENGTH = 255;
-    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-    const email = typeof rawBody.email === 'string' ? rawBody.email.trim().slice(0, MAX_EMAIL_LENGTH) : '';
+    const email = typeof rawBody.email === 'string' ? rawBody.email.trim().toLowerCase().slice(0, 255) : '';
     const password = typeof rawBody.password === 'string' ? rawBody.password : '';
-    const name = typeof rawBody.name === 'string' ? rawBody.name.trim().slice(0, MAX_NAME_LENGTH) : '';
-    const team_id = rawBody.team_id && UUID_REGEX.test(rawBody.team_id) ? rawBody.team_id : null;
-
-    console.log('[CREATE-AGENT] Creating agent:', { email, name, team_id });
+    const name = typeof rawBody.name === 'string' ? rawBody.name.trim().slice(0, 100) : '';
+    const team_id = typeof rawBody.team_id === 'string' && UUID_REGEX.test(rawBody.team_id) ? rawBody.team_id : null;
+    const workspace_id = typeof rawBody.workspace_id === 'string' && UUID_REGEX.test(rawBody.workspace_id) ? rawBody.workspace_id : null;
+    const workspace_role = typeof rawBody.workspace_role === 'string' ? rawBody.workspace_role.trim().toLowerCase() : 'agent';
 
     if (!email || !password || !name) {
       return new Response(
         JSON.stringify({ error: 'Email, senha e nome são obrigatórios' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    // Validate email format
     if (!EMAIL_REGEX.test(email)) {
       return new Response(
         JSON.stringify({ error: 'Formato de email inválido' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    // Validate name length
-    if (name.length < 2 || name.length > MAX_NAME_LENGTH) {
+    if (name.length < 2 || name.length > 100) {
       return new Response(
         JSON.stringify({ error: 'Nome deve ter entre 2 e 100 caracteres' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    // Validate password strength server-side
     const hasMinLength = password.length >= 8;
     const hasLowercase = /[a-z]/.test(password);
     const hasUppercase = /[A-Z]/.test(password);
@@ -131,12 +98,38 @@ serve(async (req) => {
     if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber) {
       return new Response(
         JSON.stringify({ error: 'Senha deve ter pelo menos 8 caracteres, incluindo maiúsculas, minúsculas e números' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
-    // Create user with admin API (doesn't log in)
-    console.log('[CREATE-AGENT] Creating user in Supabase Auth...');
+    if (workspace_id && !ALLOWED_WORKSPACE_ROLES.has(workspace_role)) {
+      return new Response(
+        JSON.stringify({ error: 'Permissão do workspace inválida. Use admin ou agent' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    if (workspace_id) {
+      const { data: canManage, error: manageError } = await supabaseAdmin.rpc('platform_can_manage_workspace', {
+        p_workspace_id: workspace_id,
+        p_user_id: user.id,
+      });
+
+      if (manageError) {
+        return new Response(
+          JSON.stringify({ error: 'Erro ao validar permissões do workspace' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      if (!canManage) {
+        return new Response(
+          JSON.stringify({ error: 'Apenas administradores da plataforma ou do workspace podem cadastrar membros' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
     const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -145,47 +138,75 @@ serve(async (req) => {
     });
 
     if (createError) {
-      console.error('[CREATE-AGENT] Error creating user:', createError);
       return new Response(
         JSON.stringify({ error: createError.message }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
     const userId = userData.user.id;
-    console.log('[CREATE-AGENT] User created:', userId);
 
-    // Update profile with team if provided
     if (team_id) {
-      console.log('[CREATE-AGENT] Updating profile with team_id:', team_id);
       await supabaseAdmin
         .from('profiles')
         .update({ team_id })
         .eq('id', userId);
     }
 
-    // Add agent role
-    console.log('[CREATE-AGENT] Adding agent role...');
-    const { error: roleError } = await supabaseAdmin
+    const { data: existingAgentRole } = await supabaseAdmin
       .from('user_roles')
-      .insert({ user_id: userId, role: 'agent' });
+      .select('user_id')
+      .eq('user_id', userId)
+      .eq('role', 'agent')
+      .maybeSingle();
 
-    if (roleError) {
-      console.error('[CREATE-AGENT] Error adding role:', roleError);
+    if (!existingAgentRole) {
+      await supabaseAdmin
+        .from('user_roles')
+        .insert({ user_id: userId, role: 'agent' });
     }
 
-    console.log('[CREATE-AGENT] Agent created successfully:', userId);
-    return new Response(
-      JSON.stringify({ success: true, user_id: userId }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    if (workspace_id) {
+      const { error: tenantMemberError } = await supabaseAdmin
+        .from('tenant_members')
+        .upsert({
+          tenant_id: workspace_id,
+          user_id: userId,
+          role: workspace_role,
+          is_active: true,
+        }, { onConflict: 'tenant_id,user_id' });
 
+      if (tenantMemberError) {
+        return new Response(
+          JSON.stringify({ error: `Usuário criado, mas falhou ao vincular ao workspace: ${tenantMemberError.message}` }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
+      const { error: claimSyncError } = await supabaseAdmin.rpc('sync_user_workspace_claims', {
+        p_user_id: userId,
+      });
+
+      if (claimSyncError) {
+        console.error('[CREATE-AGENT] Warning syncing claims:', claimSyncError);
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        user_id: userId,
+        workspace_id,
+        workspace_role: workspace_id ? workspace_role : null,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
   } catch (error) {
     console.error('[CREATE-AGENT] Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
 });
