@@ -1,4 +1,4 @@
-import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Ticket, Users, Share2, Link2, CreditCard } from 'lucide-react';
+import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Ticket, Users, Share2, Link2, CreditCard, ListTodo } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { usePlatformAdmin } from '@/hooks/usePlatformAdmin';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -15,6 +15,7 @@ const navItems = [
   { path: '/inbox', label: 'Conversas', icon: MessageSquare },
   { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
   { path: '/calendar', label: 'Agenda', icon: Calendar, featureFlag: 'enableCalendar' as const },
+  { path: '/tasks', label: 'Tarefas', icon: ListTodo },
   { path: '/sac', label: 'SAC', icon: Ticket, featureFlag: 'enableProtocols' as const },
 ];
 

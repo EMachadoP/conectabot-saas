@@ -29,6 +29,7 @@ interface ChatHeaderProps {
   onAssignTeam?: (teamId: string) => void;
   onAddLabel?: (labelId: string) => void;
   onGenerateProtocol?: () => void;
+  onCreateTask?: () => void;
   onAudioSettingsChange?: () => void;
   onToggleBlockContact?: () => void;
   onBack?: () => void;
@@ -56,6 +57,7 @@ export function ChatHeader({
   onAssignTeam,
   onAddLabel,
   onGenerateProtocol,
+  onCreateTask,
   onAudioSettingsChange,
   onToggleBlockContact,
   onBack,
@@ -101,6 +103,18 @@ export function ChatHeader({
           >
             <FileText className="w-4 h-4 mr-2" />
             Gerar Protocolo
+          </Button>
+        )}
+
+        {onCreateTask && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCreateTask}
+            className="h-8"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Criar tarefa
           </Button>
         )}
 

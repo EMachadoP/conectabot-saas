@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Header } from './Header';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useTaskReminderPopups } from '@/hooks/useTaskReminderPopups';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -11,6 +12,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ children, hideHeader = false, hideBottomNav = false }: AppLayoutProps) {
   const isMobile = useIsMobile();
+  useTaskReminderPopups();
 
   return (
     <div className="h-screen-safe flex flex-col bg-background">

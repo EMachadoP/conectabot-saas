@@ -11,6 +11,7 @@ interface HumanActionBarProps {
   hasOpenProtocol?: boolean;
   onResolveConversation?: () => void;
   onGenerateProtocol?: () => void;
+  onCreateTask?: () => void;
   onAiModeChange?: (mode: 'AUTO' | 'COPILOT' | 'OFF') => void;
 }
 
@@ -21,6 +22,7 @@ export function HumanActionBar({
   hasOpenProtocol = false,
   onResolveConversation,
   onGenerateProtocol,
+  onCreateTask,
   onAiModeChange,
 }: HumanActionBarProps) {
   const [loading, setLoading] = useState(false);
@@ -87,6 +89,17 @@ export function HumanActionBar({
       >
         <CheckCircle2 className="w-3 h-3 mr-1" />
         Resolver
+      </Button>
+
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 text-xs"
+        onClick={onCreateTask}
+        disabled={loading}
+      >
+        <MessageSquarePlus className="w-3 h-3 mr-1" />
+        Criar tarefa
       </Button>
 
       <Button

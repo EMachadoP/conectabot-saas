@@ -9,6 +9,7 @@ import { IdentifyParticipantModal } from './IdentifyParticipantModal';
 import { AIControlBar } from './AIControlBar';
 import { HumanActionBar } from './HumanActionBar';
 import { GenerateProtocolModal } from './GenerateProtocolModal';
+import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { CondominiumChips } from './CondominiumSelector';
 import { ContactMemoryPanel } from './ContactMemoryPanel';
 import { useParticipantInfo } from '@/hooks/useParticipantInfo';
@@ -60,6 +61,7 @@ export function ChatArea(props: ChatAreaProps) {
   const { contact, messages, conversationId, loading, isMobile } = props;
   const [identifyModalOpen, setIdentifyModalOpen] = useState(false);
   const [protocolModalOpen, setProtocolModalOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [participantHeaderRefreshKey, setParticipantHeaderRefreshKey] = useState(0);
 
   const { participant, contactInfo, displayNameType, refetch: refetchParticipant } =
@@ -80,6 +82,9 @@ export function ChatArea(props: ChatAreaProps) {
 
   const isResolved = props.conversationStatus === 'resolved';
   const isContactBlocked = Array.isArray(contact.tags) && contact.tags.includes('blocked');
+  const latestInboundMessage = [...messages]
+    .reverse()
+    .find((message) => message.sender_type !== 'agent' && message.message_type !== 'system');
 
   return (
     <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
@@ -105,6 +110,7 @@ export function ChatArea(props: ChatAreaProps) {
         onAssignTeam={props.onAssignTeam}
         onAddLabel={props.onAddLabel}
         onGenerateProtocol={() => setProtocolModalOpen(true)}
+        onCreateTask={() => setTaskModalOpen(true)}
         onAudioSettingsChange={props.onAudioSettingsChange}
         onToggleBlockContact={props.onToggleBlockContact}
         onBack={props.onBack}
@@ -166,6 +172,7 @@ export function ChatArea(props: ChatAreaProps) {
           aiMode={props.aiMode || 'AUTO'}
           onResolveConversation={props.onResolveConversation}
           onGenerateProtocol={() => setProtocolModalOpen(true)}
+          onCreateTask={() => setTaskModalOpen(true)}
           onAiModeChange={props.onAiModeChange}
         />
       )}
@@ -214,6 +221,17 @@ export function ChatArea(props: ChatAreaProps) {
             props.onProtocolCreated?.(code);
             toast.success(`Protocolo ${code} criado`);
           }}
+        />
+      )}
+
+      {conversationId && (
+        <CreateTaskModal
+          open={taskModalOpen}
+          onOpenChange={setTaskModalOpen}
+          conversationId={conversationId}
+          sourceMessageId={latestInboundMessage?.id ?? null}
+          contactId={contact?.id ?? null}
+          contactName={participant?.name || contact?.name || null}
         />
       )}
     </div>

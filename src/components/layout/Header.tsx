@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown } from 'lucide-react';
+import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown, ListTodo } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,6 +27,7 @@ const navItems = [
   { path: '/inbox', label: 'Conversas', icon: MessageSquare },
   { path: '/dashboard', label: 'Dashboard', icon: BarChart3 },
   { path: '/calendar', label: 'Agenda', icon: Calendar, featureFlag: 'enableCalendar' as const },
+  { path: '/tasks', label: 'Tarefas', icon: ListTodo },
   { path: '/sac', label: 'SAC', icon: Ticket, featureFlag: 'enableProtocols' as const },
   { path: '/admin/ai', label: 'IA', icon: Bot, adminOnly: true },
   { path: '/admin/zapi', label: 'Z-API', icon: Share2, adminOnly: true },

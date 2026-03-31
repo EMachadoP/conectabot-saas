@@ -20,6 +20,7 @@ import AdminContacts from "./pages/AdminContacts";
 import AdminDuplicates from "./pages/AdminDuplicates";
 import AdminIntegrations from "./pages/AdminIntegrations";
 import Calendar from "./pages/Calendar";
+import Tasks from "./pages/Tasks";
 import SAC from "./pages/SAC";
 import SACTicketDetail from "./pages/SACTicketDetail";
 import Status from "./pages/Status";
@@ -55,6 +56,7 @@ const App = () => (
               <Route path="/super-admin/clients" element={<ProtectedRoute><PlatformAdminRoute><SuperAdminClients /></PlatformAdminRoute></ProtectedRoute>} />
               <Route path="/inbox/:id" element={<ProtectedRoute><Inbox /></ProtectedRoute>} />
               <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+              <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
               <Route path="/sac" element={<ProtectedRoute><SAC /></ProtectedRoute>} />
               <Route path="/sac/:id" element={<ProtectedRoute><SACTicketDetail /></ProtectedRoute>} />
               <Route path="/status" element={<ProtectedRoute><Status /></ProtectedRoute>} />

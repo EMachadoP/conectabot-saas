@@ -217,6 +217,46 @@ serve(async (req) => {
       direction: 'outbound'
     });
 
+    if (userId && userId !== 'system') {
+      const responseTimestamp = new Date().toISOString();
+      const { data: linkedTasks } = await supabaseAdmin
+        .from('workspace_tasks')
+        .select('id, assigned_to, first_response_at, status')
+        .eq('workspace_id', conv.workspace_id)
+        .eq('source_conversation_id', conversation_id)
+        .in('status', ['pending', 'in_progress']);
+
+      for (const task of linkedTasks || []) {
+        const nextStatus = task.status === 'pending' ? 'in_progress' : task.status;
+        await supabaseAdmin
+          .from('workspace_tasks')
+          .update({
+            status: nextStatus,
+            first_response_at: task.first_response_at || responseTimestamp,
+            first_response_by: task.first_response_at ? undefined : userId,
+            last_response_at: responseTimestamp,
+            last_response_by: userId,
+          })
+          .eq('id', task.id);
+
+        const responderIsOriginalAssignee = task.assigned_to === userId;
+        await supabaseAdmin.from('workspace_task_history').insert({
+          tenant_id: conv.workspace_id,
+          workspace_id: conv.workspace_id,
+          task_id: task.id,
+          actor_id: userId,
+          event_type: responderIsOriginalAssignee ? 'response_recorded' : 'response_by_other_user',
+          message: responderIsOriginalAssignee
+            ? `Resposta registrada por ${senderName}.`
+            : `Resposta registrada por ${senderName}, diferente do responsável original.`,
+          metadata: {
+            conversation_id,
+            responder_id: userId,
+          },
+        });
+      }
+    }
+
     await supabaseAdmin.rpc('record_usage', {
       p_workspace_id: conv.workspace_id,
       p_metric_name: 'messages_sent',
