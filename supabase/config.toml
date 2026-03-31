@@ -100,3 +100,10 @@ verify_jwt = false
 [functions.resend-user-access-email]
 verify_jwt = false
 
+
+[functions.add-manual-target]
+verify_jwt = false
+
+[functions.sync-wa-contacts]
+verify_jwt = false
+
