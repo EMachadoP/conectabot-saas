@@ -12,7 +12,8 @@ import {
     CalendarDays,
     MoreVertical,
     Loader2,
-    AlertCircle
+    AlertCircle,
+    ListTodo
 } from 'lucide-react';
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -27,6 +28,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { CreateEventModal } from '@/components/calendar/CreateEventModal';
 import { EventDetailModal } from '@/components/calendar/EventDetailModal';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -43,6 +45,7 @@ export default function CalendarPage() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [viewFilter, setViewFilter] = useState<'all' | 'tasks' | 'events'>('all');
 
     const { data: events, isLoading } = useQuery({
         queryKey: ['calendar_events', activeTenant?.id],
@@ -52,6 +55,7 @@ export default function CalendarPage() {
             const start = startOfDay(new Date()).toISOString();
             const end = endOfDay(addDays(new Date(), 7)).toISOString();
 
+            const sb = supabase as any;
             const { data, error } = await supabase
                 .from('calendar_events')
                 .select(`
@@ -64,7 +68,23 @@ export default function CalendarPage() {
                 .order('start_at', { ascending: true });
 
             if (error) throw error;
-            return data;
+            const eventIds = (data || []).map((item: any) => item.id);
+            let tasksByEventId: Record<string, any> = {};
+
+            if (eventIds.length > 0) {
+                const { data: tasks } = await sb
+                    .from('workspace_tasks')
+                    .select('id, title, status, priority, assigned_to, due_at, calendar_event_id')
+                    .eq('workspace_id', activeTenant.id)
+                    .in('calendar_event_id', eventIds);
+
+                tasksByEventId = Object.fromEntries((tasks || []).map((task: any) => [task.calendar_event_id, task]));
+            }
+
+            return (data || []).map((item: any) => ({
+                ...item,
+                linkedTask: tasksByEventId[item.id] || null,
+            }));
         },
         enabled: !!activeTenant
     });
@@ -97,8 +117,16 @@ export default function CalendarPage() {
         return <Navigate to="/auth" replace />;
     }
 
-    const todayEvents = events?.filter(e => isToday(new Date(e.start_at))) || [];
-    const upcomingEvents = events?.filter(e => !isToday(new Date(e.start_at))) || [];
+    const filteredEvents = (events || []).filter((event: any) => {
+        if (viewFilter === 'tasks') return !!event.linkedTask;
+        if (viewFilter === 'events') return !event.linkedTask;
+        return true;
+    });
+
+    const todayEvents = filteredEvents.filter((e: any) => isToday(new Date(e.start_at))) || [];
+    const upcomingEvents = filteredEvents.filter((e: any) => !isToday(new Date(e.start_at))) || [];
+    const taskCount = (events || []).filter((event: any) => !!event.linkedTask).length;
+    const operationalCount = (events || []).filter((event: any) => !!event.linkedTask && event.linkedTask.status !== 'completed').length;
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -129,6 +157,17 @@ export default function CalendarPage() {
                                     {event.title}
                                 </h3>
                                 {getStatusBadge(event.status)}
+                                {event.linkedTask && (
+                                    <>
+                                        <Badge variant="secondary" className="gap-1">
+                                            <ListTodo className="w-3 h-3" />
+                                            Tarefa
+                                        </Badge>
+                                        <Badge variant={event.linkedTask.status === 'completed' ? 'outline' : 'destructive'}>
+                                            {event.linkedTask.status}
+                                        </Badge>
+                                    </>
+                                )}
                             </div>
 
                             <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -147,6 +186,11 @@ export default function CalendarPage() {
                             {event.description && (
                                 <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
                                     {event.description}
+                                </p>
+                            )}
+                            {event.linkedTask && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Responsável operacional: {event.linkedTask.assigned_to ? 'vinculado à tarefa' : 'não atribuído'} • Prioridade {event.linkedTask.priority}
                                 </p>
                             )}
                         </div>
@@ -195,11 +239,23 @@ export default function CalendarPage() {
                             {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}
                         </p>
                     </div>
-                    <Button onClick={() => setIsCreateModalOpen(true)} className="shadow-lg shadow-primary/20">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Novo evento
-                    </Button>
+                    <div className="flex items-center gap-3">
+                        <Badge variant="outline">{taskCount} tarefas na agenda</Badge>
+                        <Badge variant={operationalCount > 0 ? 'destructive' : 'outline'}>{operationalCount} operacionais pendentes</Badge>
+                        <Button onClick={() => setIsCreateModalOpen(true)} className="shadow-lg shadow-primary/20">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Novo evento
+                        </Button>
+                    </div>
                 </div>
+
+                <Tabs value={viewFilter} onValueChange={(value) => setViewFilter(value as 'all' | 'tasks' | 'events')}>
+                    <TabsList>
+                        <TabsTrigger value="all">Tudo</TabsTrigger>
+                        <TabsTrigger value="tasks">Tarefas operacionais</TabsTrigger>
+                        <TabsTrigger value="events">Eventos gerais</TabsTrigger>
+                    </TabsList>
+                </Tabs>
 
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -250,7 +306,7 @@ export default function CalendarPage() {
                     </div>
                 )}
 
-                {!isLoading && events?.length === 0 && (
+                {!isLoading && filteredEvents.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
                         <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center">
                             <CalendarIcon className="w-8 h-8 text-muted-foreground" />

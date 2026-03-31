@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown, ListTodo } from 'lucide-react';
+import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown, ListTodo, Plus } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { EditProfileModal } from '@/components/profile/EditProfileModal';
 import { PRODUCT } from '@/config/product';
 import { useTenant } from '@/contexts/TenantContext';
+import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +48,7 @@ export function Header() {
   const { data: billingOverview } = useBillingOverview();
   const { activeTenant, tenants, switchTenant } = useTenant();
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showQuickTaskModal, setShowQuickTaskModal] = useState(false);
   const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(null);
 
   const usageRatio = billingOverview?.maxUsageRatio ?? 0;
@@ -107,6 +109,10 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowQuickTaskModal(true)}>
+            <Plus className="w-4 h-4" />
+            Nova tarefa
+          </Button>
           {activeTenant && tenants.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -165,6 +171,11 @@ export function Header() {
         onOpenChange={setShowProfileModal}
         profile={profile}
         onProfileUpdated={refetch}
+      />
+
+      <CreateTaskModal
+        open={showQuickTaskModal}
+        onOpenChange={setShowQuickTaskModal}
       />
     </>
   );

@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import { MessageSquare, MessageCircle, CheckCircle, Calendar, Bot, Coins, Zap, TrendingUp, Users, ArrowRightLeft } from 'lucide-react';
+import { MessageSquare, MessageCircle, CheckCircle, Calendar, Bot, Coins, Zap, TrendingUp, Users, ArrowRightLeft, AlertTriangle, Clock3, Timer } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useTenant } from '@/contexts/TenantContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,6 +42,15 @@ interface ModelUsage {
   count: number;
 }
 
+interface TaskStats {
+  total: number;
+  pending: number;
+  overdue: number;
+  onTime: number;
+  dueSoon: number;
+  avgResponseMinutes: number;
+}
+
 // Estimated costs per 1K tokens (input + output average)
 const COST_PER_1K_TOKENS: Record<string, number> = {
   'google/gemini-2.5-flash': 0.00015,
@@ -64,7 +74,16 @@ function estimateCost(tokens: number, model: string): number {
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
+  const { activeTenant } = useTenant();
   const [stats, setStats] = useState<Stats>({ total: 0, open: 0, resolved: 0, thisMonth: 0 });
+  const [taskStats, setTaskStats] = useState<TaskStats>({
+    total: 0,
+    pending: 0,
+    overdue: 0,
+    onTime: 0,
+    dueSoon: 0,
+    avgResponseMinutes: 0,
+  });
   const [aiStats, setAIStats] = useState<AIStats>({
     tokensToday: 0,
     tokensMonth: 0,
@@ -84,17 +103,75 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
     fetchAllData();
-  }, [user, period]);
+  }, [user, period, activeTenant?.id]);
 
   const fetchAllData = async () => {
     setLoading(true);
     await Promise.all([
       fetchStats(),
+      fetchTaskStats(),
       fetchAIStats(),
       fetchDailyData(),
       fetchModelUsage(),
     ]);
     setLoading(false);
+  };
+
+  const fetchTaskStats = async () => {
+    if (!activeTenant?.id) {
+      setTaskStats({
+        total: 0,
+        pending: 0,
+        overdue: 0,
+        onTime: 0,
+        dueSoon: 0,
+        avgResponseMinutes: 0,
+      });
+      return;
+    }
+
+    const sb = supabase as any;
+    const { data, error } = await sb
+      .from('workspace_tasks')
+      .select('id, status, due_at, created_at, first_response_at, completed_at')
+      .eq('workspace_id', activeTenant.id);
+
+    if (error) {
+      console.error('[Dashboard] taskStats error', error);
+      return;
+    }
+
+    const tasks = data || [];
+    const now = Date.now();
+    const pending = tasks.filter((task: any) => !['completed', 'canceled'].includes(task.status));
+    const overdue = pending.filter((task: any) => new Date(task.due_at).getTime() < now);
+    const dueSoon = pending.filter((task: any) => {
+      const due = new Date(task.due_at).getTime();
+      return due >= now && due <= now + 24 * 60 * 60 * 1000;
+    });
+    const responded = tasks.filter((task: any) => task.first_response_at || task.completed_at);
+    const onTime = responded.filter((task: any) => {
+      const responseAt = task.first_response_at || task.completed_at;
+      return responseAt && new Date(responseAt).getTime() <= new Date(task.due_at).getTime();
+    });
+    const responseTimes = responded
+      .map((task: any) => {
+        const responseAt = task.first_response_at || task.completed_at;
+        if (!responseAt) return null;
+        return (new Date(responseAt).getTime() - new Date(task.created_at).getTime()) / 60000;
+      })
+      .filter((value: number | null): value is number => value !== null);
+
+    setTaskStats({
+      total: tasks.length,
+      pending: pending.length,
+      overdue: overdue.length,
+      onTime: onTime.length,
+      dueSoon: dueSoon.length,
+      avgResponseMinutes: responseTimes.length
+        ? responseTimes.reduce((total: number, value: number) => total + value, 0) / responseTimes.length
+        : 0,
+    });
   };
 
   const fetchStats = async () => {
@@ -351,6 +428,44 @@ export default function DashboardPage() {
                     </Card>
                   );
                 })}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Tarefas pendentes</CardTitle>
+                    <Clock3 className="w-5 h-5 text-primary" />
+                  </CardHeader>
+                  <CardContent><div className="text-3xl font-bold">{taskStats.pending}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Em atraso</CardTitle>
+                    <AlertTriangle className="w-5 h-5 text-destructive" />
+                  </CardHeader>
+                  <CardContent><div className="text-3xl font-bold text-destructive">{taskStats.overdue}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Próximas do prazo</CardTitle>
+                    <Calendar className="w-5 h-5 text-yellow-500" />
+                  </CardHeader>
+                  <CardContent><div className="text-3xl font-bold">{taskStats.dueSoon}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">No prazo</CardTitle>
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                  </CardHeader>
+                  <CardContent><div className="text-3xl font-bold">{taskStats.onTime}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Tempo médio</CardTitle>
+                    <Timer className="w-5 h-5 text-blue-500" />
+                  </CardHeader>
+                  <CardContent><div className="text-3xl font-bold">{Math.round(taskStats.avgResponseMinutes || 0)}m</div></CardContent>
+                </Card>
               </div>
 
               {/* Daily Chart */}
