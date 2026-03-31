@@ -13,6 +13,19 @@ export interface Conversation {
   priority: string | null;
 }
 
+interface LatestMessageRecord {
+  conversation_id: string;
+  content: string | null;
+  message_type: string | null;
+  sent_at: string | null;
+}
+
+function isUsefulPreview(message: LatestMessageRecord) {
+  if (!message) return false;
+  if (message.message_type === 'system') return false;
+  return Boolean(message.content || message.message_type);
+}
+
 interface UseRealtimeInboxProps {
   onNewInboundMessage?: () => void;
   userId?: string;
@@ -60,8 +73,8 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
             .in('conversation_id', conversationIds)
             .order('sent_at', { ascending: false });
 
-          for (const message of latestMessages || []) {
-            if (!latestMessageByConversation.has(message.conversation_id)) {
+          for (const message of (latestMessages || []) as LatestMessageRecord[]) {
+            if (!latestMessageByConversation.has(message.conversation_id) && isUsefulPreview(message)) {
               latestMessageByConversation.set(message.conversation_id, {
                 content: message.content || 'Nenhuma mensagem',
                 message_type: message.message_type || 'text',
@@ -76,8 +89,8 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
           return {
             id: conv.id,
             contact: conv.contacts,
-            last_message: latestMessage?.content || 'Nenhuma mensagem',
-            last_message_type: latestMessage?.message_type || 'text',
+            last_message: latestMessage?.content || conv.last_message || 'Nenhuma mensagem',
+            last_message_type: latestMessage?.message_type || conv.last_message_type || 'text',
             last_message_at: latestMessage?.sent_at || conv.last_message_at,
             unread_count: conv.unread_count,
             assigned_to: conv.assigned_to,

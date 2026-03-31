@@ -116,26 +116,20 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
         updated_by: currentUserId || null,
       };
 
-      if (memoryId) {
-        const { error } = await client
-          .from('contact_memory')
-          .update(payload)
-          .eq('id', memoryId);
+      const { data, error } = await client
+        .from('contact_memory')
+        .upsert({
+          id: memoryId || undefined,
+          ...payload,
+          created_by: currentUserId || null,
+        }, {
+          onConflict: 'contact_id',
+        })
+        .select('id')
+        .single();
 
-        if (error) throw error;
-      } else {
-        const { data, error } = await client
-          .from('contact_memory')
-          .insert({
-            ...payload,
-            created_by: currentUserId || null,
-          })
-          .select('id')
-          .single();
-
-        if (error) throw error;
-        setMemoryId(data.id);
-      }
+      if (error) throw error;
+      setMemoryId(data.id);
 
       if (form.contact_name && form.contact_name !== contact.name) {
         const { error: contactError } = await supabase

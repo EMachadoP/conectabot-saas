@@ -36,8 +36,7 @@ export default function InboxPage() {
   const { messages, loading: loadingMessages } = useRealtimeMessages(activeConversationId);
 
   const shouldMarkConversationAsRead = useCallback((conversation: { assigned_to?: string | null } | null | undefined) => {
-    if (!user?.id || !conversation) return false;
-    return !conversation.assigned_to || conversation.assigned_to === user.id;
+    return Boolean(user?.id && conversation);
   }, [user?.id]);
 
   const parseFunctionError = useCallback(async (error: unknown) => {
