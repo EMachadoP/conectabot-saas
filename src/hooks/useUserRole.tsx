@@ -62,7 +62,14 @@ export function useUserRole() {
     };
   }, [activeTenant?.id, authLoading, tenantLoading, user]);
 
-  const role = dbRole ?? metadataRole;
+  const role = useMemo<WorkspaceRole>(() => {
+    if (!user) return 'agent';
+    if (activeTenant?.id) {
+      if (roleLoading) return 'agent';
+      return dbRole ?? 'agent';
+    }
+    return metadataRole ?? 'agent';
+  }, [activeTenant?.id, dbRole, metadataRole, roleLoading, user]);
 
   const roles = useMemo(() => {
     if (!user) return [] as WorkspaceRole[];

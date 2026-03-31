@@ -41,7 +41,7 @@ export function Header() {
   const location = useLocation();
   const { signOut } = useAuth();
   const { profile, displayName, refetch } = useProfile();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, loading: roleLoading } = useUserRole();
   const { isPlatformAdmin } = usePlatformAdmin();
   const { data: billingOverview } = useBillingOverview();
   const { activeTenant, tenants, switchTenant } = useTenant();
@@ -58,7 +58,7 @@ export function Header() {
 
   const visibleNavItems = navItems.filter(item => {
     if (item.platformOnly && !isPlatformAdmin) return false;
-    if (item.adminOnly && !isAdmin) return false;
+    if (item.adminOnly && (roleLoading || !isAdmin)) return false;
     if (item.featureFlag && !PRODUCT.flags[item.featureFlag]) return false;
     return true;
   });
@@ -137,7 +137,7 @@ export function Header() {
             </DropdownMenu>
           )}
 
-          {isAdmin && usageLabel && (
+          {!roleLoading && isAdmin && usageLabel && (
             <Link to="/settings/billing">
               <Badge variant={usageBadgeTone} className="cursor-pointer">
                 {usageLabel}

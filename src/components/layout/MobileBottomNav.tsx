@@ -29,7 +29,7 @@ const adminItems = [
 
 export function MobileBottomNav() {
   const location = useLocation();
-  const { isAdmin } = useUserRole();
+  const { isAdmin, loading: roleLoading } = useUserRole();
   const { isPlatformAdmin } = usePlatformAdmin();
 
   const isActive = (path: string) => {
@@ -60,7 +60,7 @@ export function MobileBottomNav() {
             );
           })}
 
-        {isAdmin && (
+        {!roleLoading && isAdmin && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -97,7 +97,7 @@ export function MobileBottomNav() {
           </DropdownMenu>
         )}
 
-        {!isAdmin && (
+        {(roleLoading || !isAdmin) && (
           <Link
             to="/status"
             className={cn('bottom-nav-item flex-1', isActive('/status') && 'active')}
