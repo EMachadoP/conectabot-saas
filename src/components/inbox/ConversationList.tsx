@@ -50,7 +50,7 @@ export function ConversationList({
         case 'mine':
           return conv.status === 'open' && conv.assigned_to === userId;
         case 'inbox':
-          return conv.status === 'open' && !conv.assigned_to;
+          return conv.status === 'open';
         case 'resolved':
           return conv.status === 'resolved';
         default:
@@ -60,7 +60,7 @@ export function ConversationList({
 
   const countByTab = {
     mine: conversations.filter(c => c.status === 'open' && c.assigned_to === userId).length,
-    inbox: conversations.filter(c => c.status === 'open' && !c.assigned_to).length,
+    inbox: conversations.filter(c => c.status === 'open').length,
     resolved: conversations.filter(c => c.status === 'resolved').length,
   };
 
