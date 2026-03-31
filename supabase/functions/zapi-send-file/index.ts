@@ -9,6 +9,7 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const normalizeRecipient = (value: unknown) => {
   if (typeof value !== "string") return null;
@@ -67,6 +68,32 @@ serve(async (req) => {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const authHeader = req.headers.get("Authorization");
+    const isServiceKey = authHeader?.includes(supabaseServiceKey);
+
+    let senderUserId: string | null = null;
+    if (!isServiceKey) {
+      if (!authHeader) {
+        return new Response(JSON.stringify({ error: "Não autorizado: Sessão ausente" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+
+      const { data: authData, error: authError } = await supabaseAuth.auth.getUser();
+      if (authError || !authData.user) {
+        return new Response(JSON.stringify({ error: "Sessão expirada ou inválida" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      senderUserId = authData.user.id;
+    }
 
     const requireBillingAccess = async (workspaceId: string, actionType: string, quantity = 1) => {
       const { data, error } = await supabase.rpc("can_perform_action", {
@@ -116,6 +143,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const effectiveSenderId = senderUserId || sender_id || "system";
 
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
@@ -250,7 +279,7 @@ serve(async (req) => {
         workspace_id: workspaceId,
         conversation_id,
         sender_type: "agent",
-        sender_id,
+        sender_id: effectiveSenderId,
         message_type: messageType,
         content: caption || resolvedFileName || null,
         media_url: publicFileUrl,
