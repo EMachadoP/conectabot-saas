@@ -162,6 +162,8 @@ export default function TasksPage() {
 
   const mutateTask = async (taskId: string, updates: Record<string, unknown>, historyMessage: string, eventType: string) => {
     const sb = supabase as any
+    const currentTask = tasks.find((task: any) => task.id === taskId)
+
     await sb.from('workspace_tasks').update(updates).eq('id', taskId)
     await sb.from('workspace_task_history').insert({
       tenant_id: activeTenant?.id,
@@ -172,6 +174,16 @@ export default function TasksPage() {
       message: historyMessage,
       metadata: updates,
     })
+
+    const reminderJobId = currentTask?.metadata?.reminder_job_id
+    if (reminderJobId && ['completed', 'canceled'].includes(String(updates.status || ''))) {
+      await sb
+        .from('reminder_jobs')
+        .update({
+          status: updates.status === 'completed' ? 'done' : 'canceled',
+        })
+        .eq('id', reminderJobId)
+    }
 
     await queryClient.invalidateQueries({ queryKey: ['workspace_tasks', activeTenant?.id] })
     await queryClient.invalidateQueries({ queryKey: ['workspace_task_history', activeTenant?.id] })

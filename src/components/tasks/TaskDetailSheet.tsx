@@ -33,6 +33,16 @@ export function TaskDetailSheet({
     return `${usersById[task.completed_by] || 'Outro usuário'} concluiu no lugar do responsável original.`
   }, [task?.assigned_to, task?.completed_by, usersById])
 
+  const reminderTargets = task?.metadata?.reminder_targets || []
+  const recurrenceLabel =
+    task?.metadata?.recurrence_mode === 'daily'
+      ? 'Diária'
+      : task?.metadata?.recurrence_mode === 'weekly'
+        ? 'Semanal'
+        : task?.metadata?.recurrence_mode === 'custom'
+          ? `A cada ${task?.metadata?.recurrence_interval_minutes || '-'} min`
+          : 'Uma vez'
+
   if (!task) return null
 
   return (
@@ -72,6 +82,34 @@ export function TaskDetailSheet({
               <div className="font-medium">{usersById[task.last_response_by] || '-'}</div>
             </div>
           </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="text-xs uppercase text-muted-foreground">Lembrete no app</div>
+              <div className="font-medium">
+                {task.reminder_enabled ? `Ativo a cada ${task.reminder_every_minutes || '-'} min` : 'Desligado'}
+              </div>
+            </div>
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="text-xs uppercase text-muted-foreground">Lembrete WhatsApp</div>
+              <div className="font-medium">
+                {task?.metadata?.whatsapp_enabled ? recurrenceLabel : 'Não configurado'}
+              </div>
+            </div>
+          </div>
+
+          {reminderTargets.length > 0 && (
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="text-xs uppercase text-muted-foreground">Destinos de notificação</div>
+              <div className="flex flex-wrap gap-2">
+                {reminderTargets.map((target: any) => (
+                  <Badge key={`${target.jid}-${target.display_name}`} variant="outline">
+                    {target.display_name}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
 
           {task.description && (
             <div className="rounded-lg border p-4 space-y-2">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
-import { CalendarClock, MessageSquarePlus } from 'lucide-react'
+import { CalendarClock, MessageSquarePlus, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/hooks/useAuth'
 import { useTenant } from '@/contexts/TenantContext'
@@ -12,12 +12,19 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { WATargetSelector } from '@/components/calendar/WATargetSelector'
+import type { WATarget } from '@/hooks/useWATargets'
 
 interface WorkspaceMember {
   id: string
   name: string
   email?: string | null
   role: string
+}
+
+interface ReminderTargetEntry {
+  id: string
+  waTarget?: WATarget
 }
 
 interface CreateTaskModalProps {
@@ -48,6 +55,7 @@ export function CreateTaskModal({
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
   const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [targets, setTargets] = useState<ReminderTargetEntry[]>([{ id: crypto.randomUUID() }])
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -56,6 +64,10 @@ export function CreateTaskModal({
     dueAt: toInputDateTime(new Date(Date.now() + 60 * 60 * 1000)),
     reminderEnabled: true,
     reminderEveryMinutes: 10,
+    whatsappReminderEnabled: false,
+    reminderLeadMinutes: 30,
+    recurrenceMode: 'none',
+    customRecurrenceMinutes: 1440,
   })
 
   useEffect(() => {
@@ -113,6 +125,40 @@ export function CreateTaskModal({
     [form.assignedTo, members],
   )
 
+  const addTarget = () => setTargets((current) => [...current, { id: crypto.randomUUID() }])
+
+  const removeTarget = (id: string) => {
+    setTargets((current) => (current.length > 1 ? current.filter((target) => target.id !== id) : current))
+  }
+
+  const updateTarget = (id: string, waTarget: WATarget | undefined) => {
+    setTargets((current) => current.map((target) => (target.id === id ? { ...target, waTarget } : target)))
+  }
+
+  const getRepeatEveryMinutes = () => {
+    if (form.recurrenceMode === 'daily') return 24 * 60
+    if (form.recurrenceMode === 'weekly') return 7 * 24 * 60
+    if (form.recurrenceMode === 'custom') return Math.max(10, Number(form.customRecurrenceMinutes || 10))
+    return Math.max(5, Number(form.reminderEveryMinutes || 10))
+  }
+
+  const resetState = () => {
+    setTargets([{ id: crypto.randomUUID() }])
+    setForm({
+      title: contactName ? `Retorno para ${contactName}` : 'Nova tarefa',
+      description: '',
+      assignedTo: members[0]?.id || '',
+      priority: 'normal',
+      dueAt: toInputDateTime(new Date(Date.now() + 60 * 60 * 1000)),
+      reminderEnabled: true,
+      reminderEveryMinutes: 10,
+      whatsappReminderEnabled: false,
+      reminderLeadMinutes: 30,
+      recurrenceMode: 'none',
+      customRecurrenceMinutes: 1440,
+    })
+  }
+
   const handleSubmit = async () => {
     if (!user?.id || !activeTenant?.id) return
     if (!form.title.trim()) {
@@ -130,6 +176,43 @@ export function CreateTaskModal({
       const sb = supabase as any
       const nowIso = new Date().toISOString()
       const dueIso = new Date(form.dueAt).toISOString()
+      const validTargets = targets.map((target) => target.waTarget).filter(Boolean) as WATarget[]
+
+      if (form.whatsappReminderEnabled && validTargets.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Selecione pelo menos um destino',
+          description: 'Escolha um contato ou grupo para o lembrete via WhatsApp.',
+        })
+        setLoading(false)
+        return
+      }
+
+      const { data: profile } = await sb
+        .from('profiles')
+        .select('team_id')
+        .eq('id', user.id)
+        .single()
+
+      const teamId = profile?.team_id
+      if (form.whatsappReminderEnabled && !teamId) {
+        throw new Error('Não foi possível identificar o time para envio do lembrete.')
+      }
+
+      const reminderMetadata = {
+        popup_interval_minutes: Number(form.reminderEveryMinutes || 10),
+        whatsapp_enabled: form.whatsappReminderEnabled,
+        reminder_lead_minutes: Number(form.reminderLeadMinutes || 30),
+        recurrence_mode: form.recurrenceMode,
+        recurrence_interval_minutes: getRepeatEveryMinutes(),
+        reminder_targets: validTargets.map((target) => ({
+          id: target.id,
+          type: target.type,
+          display_name: target.display_name,
+          jid: target.jid,
+          phone_e164: target.phone_e164 || null,
+        })),
+      }
 
       const { data: task, error: taskError } = await sb
         .from('workspace_tasks')
@@ -153,6 +236,7 @@ export function CreateTaskModal({
           reminder_every_minutes: Number(form.reminderEveryMinutes || 10),
           metadata: {
             contact_name: contactName || null,
+            ...reminderMetadata,
           },
         })
         .select()
@@ -174,15 +258,28 @@ export function CreateTaskModal({
         },
       })
 
-      const { data: calendarEvent } = await sb
+      const recurrenceText =
+        form.recurrenceMode === 'none'
+          ? 'Lembrete único.'
+          : form.recurrenceMode === 'daily'
+            ? 'Recorrência diária.'
+            : form.recurrenceMode === 'weekly'
+              ? 'Recorrência semanal.'
+              : `Recorrência a cada ${getRepeatEveryMinutes()} minutos.`
+
+      const notificationText = form.whatsappReminderEnabled
+        ? `\nNotificações WhatsApp: ${validTargets.map((target) => target.display_name).join(', ')}. ${recurrenceText}`
+        : ''
+
+      const { data: calendarEvent, error: calendarError } = await sb
         .from('calendar_events')
         .insert({
           tenant_id: activeTenant.id,
           workspace_id: activeTenant.id,
           title: `Tarefa: ${form.title.trim()}`,
           description: form.description?.trim()
-            ? `${form.description.trim()}\n\nResponsável: ${assignee?.name || '-'}`
-            : `Responsável: ${assignee?.name || '-'}`,
+            ? `${form.description.trim()}\n\nResponsável: ${assignee?.name || '-'}${notificationText}`
+            : `Responsável: ${assignee?.name || '-'}${notificationText}`,
           start_at: dueIso,
           timezone: 'America/Fortaleza',
           status: 'scheduled',
@@ -191,12 +288,63 @@ export function CreateTaskModal({
         .select()
         .single()
 
-      if (calendarEvent?.id) {
-        await sb
-          .from('workspace_tasks')
-          .update({ calendar_event_id: calendarEvent.id })
-          .eq('id', task.id)
+      if (calendarError) throw calendarError
+
+      let reminderJobId: string | null = null
+      if (form.whatsappReminderEnabled && calendarEvent?.id && validTargets.length > 0) {
+        const leadMinutes = Math.max(0, Number(form.reminderLeadMinutes || 0))
+        const firstFire = new Date(new Date(dueIso).getTime() - leadMinutes * 60 * 1000)
+        const safeFirstFire = firstFire.getTime() > Date.now() ? firstFire : new Date(Date.now() + 60 * 1000)
+        const repeatEveryMinutes = getRepeatEveryMinutes()
+        const maxAttempts = form.recurrenceMode === 'none' ? 1 : 180
+
+        const { data: reminderJob, error: reminderJobError } = await sb
+          .from('reminder_jobs')
+          .insert({
+            tenant_id: activeTenant.id,
+            event_id: calendarEvent.id,
+            first_fire_at: safeFirstFire.toISOString(),
+            next_attempt_at: safeFirstFire.toISOString(),
+            repeat_every_minutes: repeatEveryMinutes,
+            max_attempts: maxAttempts,
+            ack_required: false,
+            status: 'scheduled',
+          })
+          .select()
+          .single()
+
+        if (reminderJobError) throw reminderJobError
+        reminderJobId = reminderJob.id
+
+        const { error: recipientsError } = await sb
+          .from('reminder_recipients')
+          .insert(
+            validTargets.map((target) => ({
+              reminder_id: reminderJob.id,
+              team_id: teamId,
+              type: target.type,
+              jid: target.jid,
+              display_name: target.display_name,
+              phone_e164: target.phone_e164 || null,
+              status: 'pending',
+              next_attempt_at: safeFirstFire.toISOString(),
+            })),
+          )
+
+        if (recipientsError) throw recipientsError
       }
+
+      await sb
+        .from('workspace_tasks')
+        .update({
+          calendar_event_id: calendarEvent?.id || null,
+          metadata: {
+            ...(task.metadata || {}),
+            ...reminderMetadata,
+            reminder_job_id: reminderJobId,
+          },
+        })
+        .eq('id', task.id)
 
       if (conversationId) {
         const pauseUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString()
@@ -224,22 +372,31 @@ export function CreateTaskModal({
         })
       }
 
+      if (reminderJobId) {
+        await sb.from('workspace_task_history').insert({
+          tenant_id: activeTenant.id,
+          workspace_id: activeTenant.id,
+          task_id: task.id,
+          actor_id: user.id,
+          event_type: 'reminder_configured',
+          message: `Lembrete via WhatsApp configurado com recorrência ${form.recurrenceMode === 'none' ? 'única' : form.recurrenceMode}.`,
+          metadata: {
+            reminder_job_id: reminderJobId,
+            targets: validTargets.map((target) => target.display_name),
+          },
+        })
+      }
+
       toast({
         title: 'Tarefa criada',
-        description: 'A tarefa já entrou na agenda e ficou vinculada ao responsável.',
+        description: form.whatsappReminderEnabled
+          ? 'A tarefa entrou na agenda, ficou com o responsável e já teve o lembrete externo configurado.'
+          : 'A tarefa já entrou na agenda e ficou vinculada ao responsável.',
       })
 
       onOpenChange(false)
       onSuccess?.()
-      setForm({
-        title: contactName ? `Retorno para ${contactName}` : 'Nova tarefa',
-        description: '',
-        assignedTo: members[0]?.id || '',
-        priority: 'normal',
-        dueAt: toInputDateTime(new Date(Date.now() + 60 * 60 * 1000)),
-        reminderEnabled: true,
-        reminderEveryMinutes: 10,
-      })
+      resetState()
     } catch (error: any) {
       console.error('[CreateTaskModal] error', error)
       toast({
@@ -254,7 +411,7 @@ export function CreateTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px]">
+      <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MessageSquarePlus className="w-5 h-5" />
@@ -340,7 +497,7 @@ export function CreateTaskModal({
           <div className="grid grid-cols-1 md:grid-cols-[1fr_140px] gap-4 items-end rounded-lg border p-4">
             <div className="space-y-2">
               <Label className="flex items-center justify-between">
-                <span>Lembrete recorrente</span>
+                <span>Lembrete no app</span>
                 <Switch
                   checked={form.reminderEnabled}
                   onCheckedChange={(checked) => setForm((current) => ({ ...current, reminderEnabled: checked }))}
@@ -360,6 +517,97 @@ export function CreateTaskModal({
                 disabled={!form.reminderEnabled}
               />
             </div>
+          </div>
+
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-medium">Lembrete via WhatsApp</Label>
+                <p className="text-xs text-muted-foreground">
+                  Selecione um contato, grupo ou digite um número manualmente para receber a notificação.
+                </p>
+              </div>
+              <Switch
+                checked={form.whatsappReminderEnabled}
+                onCheckedChange={(checked) => setForm((current) => ({ ...current, whatsappReminderEnabled: checked }))}
+              />
+            </div>
+
+            {form.whatsappReminderEnabled && (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-2">
+                    <Label>Primeiro aviso antes do prazo</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={form.reminderLeadMinutes}
+                      onChange={(e) => setForm((current) => ({ ...current, reminderLeadMinutes: Number(e.target.value || 0) }))}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Recorrência</Label>
+                    <Select
+                      value={form.recurrenceMode}
+                      onValueChange={(value) => setForm((current) => ({ ...current, recurrenceMode: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Uma vez</SelectItem>
+                        <SelectItem value="daily">Diária</SelectItem>
+                        <SelectItem value="weekly">Semanal</SelectItem>
+                        <SelectItem value="custom">Outro intervalo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Intervalo customizado (min)</Label>
+                    <Input
+                      type="number"
+                      min={10}
+                      disabled={form.recurrenceMode !== 'custom'}
+                      value={form.customRecurrenceMinutes}
+                      onChange={(e) => setForm((current) => ({ ...current, customRecurrenceMinutes: Number(e.target.value || 10) }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Destinos da notificação</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={addTarget}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Adicionar destino
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {targets.map((target) => (
+                      <div key={target.id} className="flex gap-2 items-center">
+                        <div className="flex-1">
+                          <WATargetSelector
+                            value={target.waTarget}
+                            onChange={(waTarget) => updateTarget(target.id, waTarget)}
+                            placeholder="Contato, grupo ou número manual"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={targets.length === 1}
+                          onClick={() => removeTarget(target.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
