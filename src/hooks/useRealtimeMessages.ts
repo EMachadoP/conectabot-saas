@@ -8,10 +8,18 @@ export function useRealtimeMessages(conversationId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const channelRef = useRef<any>(null);
+  const fetchInFlightRef = useRef(false);
+  const lastFetchAtRef = useRef(0);
 
   const fetchMessages = useCallback(async (id: string) => {
+    if (fetchInFlightRef.current) return;
+    const now = Date.now();
+    if (now - lastFetchAtRef.current < 1000) return;
+
     // Immediate log to track request
     console.log(`[RealtimeMessages] Fetching messages for: ${id}`);
+    fetchInFlightRef.current = true;
+    lastFetchAtRef.current = now;
     setLoading(true);
 
     try {
@@ -37,6 +45,7 @@ export function useRealtimeMessages(conversationId: string | null) {
     } catch (err) {
       console.error('[RealtimeMessages] Error fetching:', err);
     } finally {
+      fetchInFlightRef.current = false;
       setLoading(false);
     }
   }, []);
@@ -98,7 +107,44 @@ export function useRealtimeMessages(conversationId: string | null) {
 
     channelRef.current = channel;
 
+    const getPollingInterval = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return 15000;
+      }
+      return 4000;
+    };
+
+    let intervalId: number | null = null;
+
+    const startPolling = () => {
+      if (intervalId !== null) window.clearInterval(intervalId);
+      intervalId = window.setInterval(() => {
+        if (!conversationId) return;
+        void fetchMessages(conversationId);
+      }, getPollingInterval());
+    };
+
+    const handleVisibilityChange = () => {
+      if (!conversationId) return;
+      void fetchMessages(conversationId);
+      startPolling();
+    };
+
+    const handleWindowFocus = () => {
+      if (!conversationId) return;
+      void fetchMessages(conversationId);
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
     return () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }

@@ -23,6 +23,7 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
   const [loading, setLoading] = useState(true);
   const processedMessageIds = useRef<Set<string>>(new Set());
   const lastFetchTime = useRef<number>(0);
+  const fetchInFlightRef = useRef(false);
 
   const markConversationAsRead = useCallback((conversationId: string) => {
     setConversations((current) =>
@@ -35,54 +36,60 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
   }, []);
 
   const fetchConversations = useCallback(async () => {
+    if (fetchInFlightRef.current) return;
     const now = Date.now();
     if (now - lastFetchTime.current < 300) return;
     lastFetchTime.current = now;
+    fetchInFlightRef.current = true;
 
-    console.log('[RealtimeInbox] Fetching conversations...');
-    const { data, error } = await supabase
-      .from('conversations')
-      .select(`*, contacts (*)`)
-      .order('last_message_at', { ascending: false });
+    try {
+      console.log('[RealtimeInbox] Fetching conversations...');
+      const { data, error } = await supabase
+        .from('conversations')
+        .select(`*, contacts (*)`)
+        .order('last_message_at', { ascending: false });
 
-    if (!error && data) {
-      const conversationIds = data.map((conv: any) => conv.id).filter(Boolean);
-      const latestMessageByConversation = new Map<string, { content: string; message_type: string; sent_at: string | null }>();
+      if (!error && data) {
+        const conversationIds = data.map((conv: any) => conv.id).filter(Boolean);
+        const latestMessageByConversation = new Map<string, { content: string; message_type: string; sent_at: string | null }>();
 
-      if (conversationIds.length > 0) {
-        const { data: latestMessages } = await supabase
-          .from('messages')
-          .select('conversation_id, content, message_type, sent_at')
-          .in('conversation_id', conversationIds)
-          .order('sent_at', { ascending: false });
+        if (conversationIds.length > 0) {
+          const { data: latestMessages } = await supabase
+            .from('messages')
+            .select('conversation_id, content, message_type, sent_at')
+            .in('conversation_id', conversationIds)
+            .order('sent_at', { ascending: false });
 
-        for (const message of latestMessages || []) {
-          if (!latestMessageByConversation.has(message.conversation_id)) {
-            latestMessageByConversation.set(message.conversation_id, {
-              content: message.content || 'Nenhuma mensagem',
-              message_type: message.message_type || 'text',
-              sent_at: message.sent_at || null,
-            });
+          for (const message of latestMessages || []) {
+            if (!latestMessageByConversation.has(message.conversation_id)) {
+              latestMessageByConversation.set(message.conversation_id, {
+                content: message.content || 'Nenhuma mensagem',
+                message_type: message.message_type || 'text',
+                sent_at: message.sent_at || null,
+              });
+            }
           }
         }
-      }
 
-      setConversations(data.map((conv: any) => {
-        const latestMessage = latestMessageByConversation.get(conv.id);
-        return {
-          id: conv.id,
-          contact: conv.contacts,
-          last_message: latestMessage?.content || 'Nenhuma mensagem',
-          last_message_type: latestMessage?.message_type || 'text',
-          last_message_at: latestMessage?.sent_at || conv.last_message_at,
-          unread_count: conv.unread_count,
-          assigned_to: conv.assigned_to,
-          status: conv.status,
-          priority: conv.priority,
-        };
-      }));
+        setConversations(data.map((conv: any) => {
+          const latestMessage = latestMessageByConversation.get(conv.id);
+          return {
+            id: conv.id,
+            contact: conv.contacts,
+            last_message: latestMessage?.content || 'Nenhuma mensagem',
+            last_message_type: latestMessage?.message_type || 'text',
+            last_message_at: latestMessage?.sent_at || conv.last_message_at,
+            unread_count: conv.unread_count,
+            assigned_to: conv.assigned_to,
+            status: conv.status,
+            priority: conv.priority,
+          };
+        }));
+      }
+    } finally {
+      fetchInFlightRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -135,8 +142,42 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
       )
       .subscribe();
 
+    const getPollingInterval = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return 25000;
+      }
+      return 8000;
+    };
+
+    let intervalId: number | null = null;
+
+    const startPolling = () => {
+      if (intervalId !== null) window.clearInterval(intervalId);
+      intervalId = window.setInterval(() => {
+        void fetchConversations();
+      }, getPollingInterval());
+    };
+
+    const handleVisibilityChange = () => {
+      void fetchConversations();
+      startPolling();
+    };
+
+    const handleWindowFocus = () => {
+      void fetchConversations();
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+
     return () => {
       console.log('[RealtimeInbox] Cleaning up channel');
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
       supabase.removeChannel(channel);
     };
   }, [fetchConversations, onNewInboundMessage, userId]);
