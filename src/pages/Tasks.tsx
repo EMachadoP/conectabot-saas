@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CheckCircle2, Clock3, Plus, Timer } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock3, Plus, Save, Timer, Users, Zap } from 'lucide-react'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/hooks/useAuth'
 import { useTenant } from '@/contexts/TenantContext'
@@ -12,12 +12,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Progress } from '@/components/ui/progress'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal'
 import { TaskDetailSheet } from '@/components/tasks/TaskDetailSheet'
 
 function avg(values: number[]) {
   if (!values.length) return 0
   return values.reduce((total, value) => total + value, 0) / values.length
+}
+
+function toInputDateTime(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value)
+  const pad = (num: number) => String(num).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export default function TasksPage() {
@@ -28,6 +40,18 @@ export default function TasksPage() {
   const [tab, setTab] = useState('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<any | null>(null)
+  const [editingTask, setEditingTask] = useState<any | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    assignedTo: '',
+    priority: 'normal',
+    dueAt: '',
+    status: 'pending',
+    reminderEnabled: true,
+    reminderEveryMinutes: 10,
+  })
 
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ['workspace_tasks', activeTenant?.id],
@@ -127,25 +151,60 @@ export default function TasksPage() {
   }, [now, tasks])
 
   const agentRows = useMemo(() => {
-    return members.map((member: any) => {
-      const assigned = tasks.filter((task: any) => task.assigned_to === member.id)
-      const completed = assigned.filter((task: any) => task.status === 'completed')
-      const onTime = assigned.filter((task: any) => {
-        const responseAt = task.first_response_at || task.completed_at
-        return responseAt && new Date(responseAt).getTime() <= new Date(task.due_at).getTime()
-      })
-      const overdue = assigned.filter((task: any) => !['completed', 'canceled'].includes(task.status) && new Date(task.due_at).getTime() < now)
+    return members
+      .map((member: any) => {
+        const assigned = tasks.filter((task: any) => task.assigned_to === member.id)
+        const completed = assigned.filter((task: any) => task.status === 'completed')
+        const onTime = assigned.filter((task: any) => {
+          const responseAt = task.first_response_at || task.completed_at
+          return responseAt && new Date(responseAt).getTime() <= new Date(task.due_at).getTime()
+        })
+        const pending = assigned.filter((task: any) => !['completed', 'canceled'].includes(task.status))
+        const overdue = pending.filter((task: any) => new Date(task.due_at).getTime() < now)
+        const avgMinutes = avg(
+          assigned
+            .map((task: any) => {
+              const responseAt = task.first_response_at || task.completed_at
+              if (!responseAt) return null
+              return (new Date(responseAt).getTime() - new Date(task.created_at).getTime()) / 60000
+            })
+            .filter((value: number | null): value is number => value !== null),
+        )
+        const slaScore = assigned.length ? Math.round((onTime.length / assigned.length) * 100) : 0
 
-      return {
-        ...member,
-        assigned: assigned.length,
-        completed: completed.length,
-        onTime: onTime.length,
-        overdue: overdue.length,
-        score: assigned.length ? Math.round((onTime.length / assigned.length) * 100) : 0,
-      }
-    })
+        return {
+          ...member,
+          assigned: assigned.length,
+          completed: completed.length,
+          pending: pending.length,
+          overdue: overdue.length,
+          onTime: onTime.length,
+          avgMinutes,
+          slaScore,
+        }
+      })
+      .sort((a, b) => {
+        if (b.slaScore !== a.slaScore) return b.slaScore - a.slaScore
+        return b.completed - a.completed
+      })
   }, [members, now, tasks])
+
+  const riskTasks = useMemo(() => {
+    return tasks
+      .filter((task: any) => !['completed', 'canceled'].includes(task.status))
+      .map((task: any) => {
+        const due = new Date(task.due_at).getTime()
+        const diff = due - now
+        return {
+          ...task,
+          isOverdue: diff < 0,
+          minutesLeft: Math.round(diff / 60000),
+        }
+      })
+      .filter((task: any) => task.isOverdue || task.minutesLeft <= 24 * 60)
+      .sort((a: any, b: any) => a.minutesLeft - b.minutesLeft)
+      .slice(0, 6)
+  }, [now, tasks])
 
   const filteredTasks = useMemo(() => {
     if (tab === 'mine') return tasks.filter((task: any) => task.assigned_to === user?.id)
@@ -159,6 +218,25 @@ export default function TasksPage() {
     () => histories.filter((entry: any) => entry.task_id === selectedTask?.id),
     [histories, selectedTask?.id],
   )
+
+  useEffect(() => {
+    if (!editingTask) return
+    setEditForm({
+      title: editingTask.title || '',
+      description: editingTask.description || '',
+      assignedTo: editingTask.assigned_to || '',
+      priority: editingTask.priority || 'normal',
+      dueAt: toInputDateTime(editingTask.due_at || new Date()),
+      status: editingTask.status || 'pending',
+      reminderEnabled: Boolean(editingTask.reminder_enabled),
+      reminderEveryMinutes: Number(editingTask.reminder_every_minutes || 10),
+    })
+  }, [editingTask])
+
+  const invalidateTaskQueries = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['workspace_tasks', activeTenant?.id] })
+    await queryClient.invalidateQueries({ queryKey: ['workspace_task_history', activeTenant?.id] })
+  }
 
   const mutateTask = async (taskId: string, updates: Record<string, unknown>, historyMessage: string, eventType: string) => {
     const sb = supabase as any
@@ -185,8 +263,91 @@ export default function TasksPage() {
         .eq('id', reminderJobId)
     }
 
-    await queryClient.invalidateQueries({ queryKey: ['workspace_tasks', activeTenant?.id] })
-    await queryClient.invalidateQueries({ queryKey: ['workspace_task_history', activeTenant?.id] })
+    await invalidateTaskQueries()
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingTask || !activeTenant?.id || !user?.id) return
+    setSavingEdit(true)
+
+    try {
+      const sb = supabase as any
+      const previousAssignee = editingTask.assigned_to
+      const nextDueAt = new Date(editForm.dueAt).toISOString()
+      const updates: Record<string, unknown> = {
+        title: editForm.title.trim(),
+        description: editForm.description.trim() || null,
+        assigned_to: editForm.assignedTo,
+        priority: editForm.priority,
+        due_at: nextDueAt,
+        status: editForm.status,
+        reminder_enabled: editForm.reminderEnabled,
+        reminder_every_minutes: Number(editForm.reminderEveryMinutes || 10),
+      }
+
+      await sb.from('workspace_tasks').update(updates).eq('id', editingTask.id)
+
+      const changes: string[] = []
+      if (editingTask.title !== updates.title) changes.push('título')
+      if ((editingTask.description || '') !== (updates.description || '')) changes.push('descrição')
+      if (editingTask.assigned_to !== updates.assigned_to) changes.push('responsável')
+      if (editingTask.priority !== updates.priority) changes.push('prioridade')
+      if (editingTask.status !== updates.status) changes.push('status')
+      if (new Date(editingTask.due_at).toISOString() !== nextDueAt) changes.push('prazo')
+      if (Boolean(editingTask.reminder_enabled) !== Boolean(updates.reminder_enabled)) changes.push('lembrete')
+      if (Number(editingTask.reminder_every_minutes || 10) !== Number(updates.reminder_every_minutes || 10)) changes.push('intervalo do lembrete')
+
+      const assigneeChanged = previousAssignee !== editForm.assignedTo
+      if (editingTask.source_conversation_id && assigneeChanged) {
+        const pauseUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+        await sb
+          .from('conversations')
+          .update({
+            assigned_to: editForm.assignedTo,
+            assigned_at: new Date().toISOString(),
+            assigned_by: user.id,
+            status: 'open',
+            unread_count: 1,
+            human_control: true,
+            ai_paused_until: pauseUntil,
+          })
+          .eq('id', editingTask.source_conversation_id)
+
+        await sb.from('messages').insert({
+          workspace_id: activeTenant.id,
+          tenant_id: activeTenant.id,
+          conversation_id: editingTask.source_conversation_id,
+          sender_type: 'system',
+          message_type: 'system',
+          content: `📌 Tarefa reatribuída para ${usersById[editForm.assignedTo] || 'responsável'} com prazo ${new Date(nextDueAt).toLocaleString('pt-BR')}.`,
+          sent_at: new Date().toISOString(),
+        })
+      }
+
+      await sb.from('workspace_task_history').insert({
+        tenant_id: activeTenant.id,
+        workspace_id: activeTenant.id,
+        task_id: editingTask.id,
+        actor_id: user.id,
+        event_type: assigneeChanged ? 'reassigned' : 'updated',
+        message: assigneeChanged
+          ? `Tarefa reatribuída de ${usersById[previousAssignee] || 'responsável anterior'} para ${usersById[editForm.assignedTo] || 'novo responsável'}.`
+          : `Tarefa atualizada: ${changes.join(', ') || 'ajustes gerais'}.`,
+        metadata: {
+          previous_assigned_to: previousAssignee,
+          ...updates,
+        },
+      })
+
+      if (selectedTask?.id === editingTask.id) {
+        setSelectedTask({ ...editingTask, ...updates })
+      }
+
+      setEditingTask(null)
+      await invalidateTaskQueries()
+    } finally {
+      setSavingEdit(false)
+    }
   }
 
   if (authLoading) return null
@@ -195,7 +356,7 @@ export default function TasksPage() {
   return (
     <AppLayout>
       <div className="p-6 space-y-6 overflow-auto h-full">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black tracking-tight">Tarefas & KPIs</h1>
             <p className="text-muted-foreground">
@@ -217,52 +378,89 @@ export default function TasksPage() {
           <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Tempo médio</CardTitle></CardHeader><CardContent className="text-3xl font-bold">{Math.round(metrics.avgResponseMinutes || 0)}m</CardContent></Card>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-6">
-          <Card>
+        <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+          <Card className="border-destructive/30 bg-destructive/5">
             <CardHeader>
-              <CardTitle>KPI por agente</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
+                Radar de SLA
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {agentRows.map((row) => (
-                <div key={row.id} className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between gap-3">
+            <CardContent className="space-y-3">
+              {riskTasks.length === 0 && (
+                <div className="rounded-lg border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                  Nenhuma tarefa vencendo ou em atraso neste momento.
+                </div>
+              )}
+              {riskTasks.map((task: any) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => setSelectedTask(task)}
+                  className="w-full rounded-lg border bg-background p-4 text-left transition hover:border-primary"
+                >
+                  <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-medium">{row.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.completed} concluídas • {row.overdue} atrasadas
+                      <div className="font-medium">{task.title}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {usersById[task.assigned_to] || 'Sem responsável'}
                       </div>
                     </div>
-                    <Badge variant={row.score >= 80 ? 'default' : row.score >= 50 ? 'secondary' : 'destructive'}>
-                      {row.score}% SLA
+                    <Badge variant={task.isOverdue ? 'destructive' : 'secondary'}>
+                      {task.isOverdue ? 'Atrasada' : 'Vence em breve'}
                     </Badge>
                   </div>
-                  <Progress value={row.score} />
-                </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{new Date(task.due_at).toLocaleString('pt-BR')}</span>
+                    <span>
+                      {task.isOverdue
+                        ? `${Math.abs(task.minutesLeft)} min de atraso`
+                        : `${task.minutesLeft} min restantes`}
+                    </span>
+                  </div>
+                </button>
               ))}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Leituras rápidas de SLA</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Visão executiva por agente
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <div className="flex items-center gap-3 rounded-lg border p-4">
-                <AlertTriangle className="w-4 h-4 text-destructive" />
-                <div><div className="font-medium">{metrics.overdue} tarefas em atraso</div><div className="text-muted-foreground">Exigem ação imediata.</div></div>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border p-4">
-                <Clock3 className="w-4 h-4 text-yellow-500" />
-                <div><div className="font-medium">{metrics.dueSoon} próximas do vencimento</div><div className="text-muted-foreground">Vencem nas próximas 24h.</div></div>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border p-4">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                <div><div className="font-medium">{metrics.onTime} respostas no prazo</div><div className="text-muted-foreground">Primeira resposta ou conclusão dentro do SLA.</div></div>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border p-4">
-                <Timer className="w-4 h-4 text-primary" />
-                <div><div className="font-medium">{Math.round(metrics.avgResponseMinutes || 0)} minutos</div><div className="text-muted-foreground">Tempo médio da primeira resposta.</div></div>
-              </div>
+            <CardContent className="space-y-3">
+              {agentRows.slice(0, 5).map((row, index) => (
+                <div key={row.id} className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">#{index + 1} {row.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.completed} concluídas • {row.pending} pendentes • {row.overdue} em atraso
+                      </div>
+                    </div>
+                    <Badge variant={row.slaScore >= 80 ? 'default' : row.slaScore >= 50 ? 'secondary' : 'destructive'}>
+                      {row.slaScore}% SLA
+                    </Badge>
+                  </div>
+                  <Progress value={row.slaScore} />
+                  <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                    <div className="rounded-md bg-muted/60 p-2">
+                      <div className="font-medium text-foreground">{row.assigned}</div>
+                      <div>Recebidas</div>
+                    </div>
+                    <div className="rounded-md bg-muted/60 p-2">
+                      <div className="font-medium text-foreground">{row.onTime}</div>
+                      <div>No prazo</div>
+                    </div>
+                    <div className="rounded-md bg-muted/60 p-2">
+                      <div className="font-medium text-foreground">{Math.round(row.avgMinutes || 0)}m</div>
+                      <div>Tempo médio</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>
@@ -295,6 +493,7 @@ export default function TasksPage() {
                   <TableBody>
                     {filteredTasks.map((task: any) => {
                       const overdue = !['completed', 'canceled'].includes(task.status) && new Date(task.due_at).getTime() < now
+                      const dueSoon = !overdue && !['completed', 'canceled'].includes(task.status) && new Date(task.due_at).getTime() <= now + 24 * 60 * 60 * 1000
                       return (
                         <TableRow key={task.id} className="cursor-pointer" onClick={() => setSelectedTask(task)}>
                           <TableCell>
@@ -306,8 +505,10 @@ export default function TasksPage() {
                           <TableCell>{usersById[task.assigned_to] || '-'}</TableCell>
                           <TableCell>{new Date(task.due_at).toLocaleString('pt-BR')}</TableCell>
                           <TableCell>
-                            <div className="flex gap-2 items-center">
-                              <Badge variant={overdue ? 'destructive' : 'outline'}>{overdue ? 'overdue' : task.status}</Badge>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <Badge variant={overdue ? 'destructive' : dueSoon ? 'secondary' : 'outline'}>
+                                {overdue ? 'overdue' : task.status}
+                              </Badge>
                               <Badge variant="secondary">{task.priority}</Badge>
                             </div>
                           </TableCell>
@@ -351,8 +552,7 @@ export default function TasksPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onSuccess={() => {
-          void queryClient.invalidateQueries({ queryKey: ['workspace_tasks', activeTenant?.id] })
-          void queryClient.invalidateQueries({ queryKey: ['workspace_task_history', activeTenant?.id] })
+          void invalidateTaskQueries()
         }}
       />
 
@@ -362,6 +562,7 @@ export default function TasksPage() {
         task={selectedTask}
         history={selectedHistory}
         usersById={usersById}
+        onEdit={(task) => setEditingTask(task)}
         onComplete={async (task) => {
           const completedByOther = task.assigned_to && task.assigned_to !== user.id
           await mutateTask(
@@ -383,6 +584,128 @@ export default function TasksPage() {
           setSelectedTask(null)
         }}
       />
+
+      <Dialog open={!!editingTask} onOpenChange={(nextOpen) => !nextOpen && setEditingTask(null)}>
+        <DialogContent className="sm:max-w-[640px]">
+          <DialogHeader>
+            <DialogTitle>Editar tarefa</DialogTitle>
+            <DialogDescription>
+              Reatribua o responsável, ajuste prazo e mantenha a auditoria no mesmo fluxo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label>Título</Label>
+              <Input
+                value={editForm.title}
+                onChange={(e) => setEditForm((current) => ({ ...current, title: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Descrição</Label>
+              <Textarea
+                rows={4}
+                value={editForm.description}
+                onChange={(e) => setEditForm((current) => ({ ...current, description: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Responsável</Label>
+                <Select value={editForm.assignedTo} onValueChange={(value) => setEditForm((current) => ({ ...current, assignedTo: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {members.map((member: any) => (
+                      <SelectItem key={member.id} value={member.id}>
+                        {member.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Status</Label>
+                <Select value={editForm.status} onValueChange={(value) => setEditForm((current) => ({ ...current, status: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pendente</SelectItem>
+                    <SelectItem value="in_progress">Em andamento</SelectItem>
+                    <SelectItem value="completed">Concluída</SelectItem>
+                    <SelectItem value="canceled">Cancelada</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid gap-2">
+                <Label>Prioridade</Label>
+                <Select value={editForm.priority} onValueChange={(value) => setEditForm((current) => ({ ...current, priority: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Baixa</SelectItem>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="high">Alta</SelectItem>
+                    <SelectItem value="urgent">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Prazo</Label>
+                <Input
+                  type="datetime-local"
+                  value={editForm.dueAt}
+                  onChange={(e) => setEditForm((current) => ({ ...current, dueAt: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-4 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="font-medium text-sm">Lembrete no app</div>
+                  <div className="text-xs text-muted-foreground">Mantém o pop-up recorrente enquanto a tarefa estiver pendente.</div>
+                </div>
+                <Switch
+                  checked={editForm.reminderEnabled}
+                  onCheckedChange={(checked) => setEditForm((current) => ({ ...current, reminderEnabled: checked }))}
+                />
+              </div>
+              <div className="grid gap-2 max-w-[180px]">
+                <Label>Intervalo (min)</Label>
+                <Input
+                  type="number"
+                  min={5}
+                  disabled={!editForm.reminderEnabled}
+                  value={editForm.reminderEveryMinutes}
+                  onChange={(e) => setEditForm((current) => ({ ...current, reminderEveryMinutes: Number(e.target.value || 10) }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingTask(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={savingEdit}>
+              <Save className="w-4 h-4 mr-2" />
+              {savingEdit ? 'Salvando...' : 'Salvar ajustes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   )
 }

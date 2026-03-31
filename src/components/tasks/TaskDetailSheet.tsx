@@ -12,6 +12,7 @@ interface TaskDetailSheetProps {
   task: any | null
   history: any[]
   usersById: Record<string, string>
+  onEdit: (task: any) => void
   onComplete: (task: any) => void
   onCancel: (task: any) => void
 }
@@ -22,6 +23,7 @@ export function TaskDetailSheet({
   task,
   history,
   usersById,
+  onEdit,
   onComplete,
   onCancel,
 }: TaskDetailSheetProps) {
@@ -127,6 +129,9 @@ export function TaskDetailSheet({
             )}
             {task.status !== 'completed' && task.status !== 'canceled' && (
               <>
+                <Button variant="outline" onClick={() => onEdit(task)}>
+                  Editar tarefa
+                </Button>
                 <Button onClick={() => onComplete(task)}>
                   <CheckCircle2 className="w-4 h-4 mr-2" />
                   Concluir tarefa

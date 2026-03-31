@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
 import { MessageSquare, MessageCircle, CheckCircle, Calendar, Bot, Coins, Zap, TrendingUp, Users, ArrowRightLeft, AlertTriangle, Clock3, Timer } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -51,6 +51,18 @@ interface TaskStats {
   avgResponseMinutes: number;
 }
 
+interface AgentTaskScore {
+  id: string;
+  name: string;
+  assigned: number;
+  completed: number;
+  pending: number;
+  overdue: number;
+  onTime: number;
+  avgResponseMinutes: number;
+  slaScore: number;
+}
+
 // Estimated costs per 1K tokens (input + output average)
 const COST_PER_1K_TOKENS: Record<string, number> = {
   'google/gemini-2.5-flash': 0.00015,
@@ -84,6 +96,8 @@ export default function DashboardPage() {
     dueSoon: 0,
     avgResponseMinutes: 0,
   });
+  const [taskAgentScores, setTaskAgentScores] = useState<AgentTaskScore[]>([]);
+  const [riskTasks, setRiskTasks] = useState<any[]>([]);
   const [aiStats, setAIStats] = useState<AIStats>({
     tokensToday: 0,
     tokensMonth: 0,
@@ -99,6 +113,14 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d');
 
   const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--accent))', '#10b981', '#f59e0b', '#ef4444'];
+
+  const executiveSummary = useMemo(() => ({
+    topAgent: taskAgentScores[0] || null,
+    riskAgent: [...taskAgentScores].sort((a, b) => {
+      if (b.overdue !== a.overdue) return b.overdue - a.overdue;
+      return b.pending - a.pending;
+    })[0] || null,
+  }), [taskAgentScores]);
 
   useEffect(() => {
     if (!user) return;
@@ -467,7 +489,79 @@ export default function DashboardPage() {
                   <CardContent><div className="text-3xl font-bold">{Math.round(taskStats.avgResponseMinutes || 0)}m</div></CardContent>
                 </Card>
               </div>
+              <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
+                <Card className="border-destructive/30 bg-destructive/5">
+                  <CardHeader>
+                    <CardTitle>Alertas operacionais de SLA</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {riskTasks.length === 0 ? (
+                      <div className="rounded-lg border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                        Nenhuma tarefa crítica nas próximas 24 horas.
+                      </div>
+                    ) : (
+                      riskTasks.map((task) => (
+                        <div key={task.id} className="rounded-lg border bg-background p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-medium">{task.title}</div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {new Date(task.due_at).toLocaleString('pt-BR')}
+                              </div>
+                            </div>
+                            <div className={`text-xs font-semibold ${task.isOverdue ? 'text-destructive' : 'text-yellow-600'}`}>
+                              {task.isOverdue ? `${Math.abs(task.diffMinutes)} min de atraso` : `${task.diffMinutes} min restantes`}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
 
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Visão executiva por agente</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-lg border p-4">
+                        <div className="text-xs uppercase text-muted-foreground">Melhor SLA</div>
+                        <div className="mt-2 font-semibold">{executiveSummary.topAgent?.name || 'Sem dados'}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {executiveSummary.topAgent ? `${executiveSummary.topAgent.slaScore}% • ${executiveSummary.topAgent.completed} concluídas` : 'Aguardando tarefas'}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-xs uppercase text-muted-foreground">Maior risco</div>
+                        <div className="mt-2 font-semibold">{executiveSummary.riskAgent?.name || 'Sem dados'}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {executiveSummary.riskAgent ? `${executiveSummary.riskAgent.overdue} atrasadas • ${executiveSummary.riskAgent.pending} pendentes` : 'Sem pendências'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {taskAgentScores.slice(0, 5).map((agent) => (
+                        <div key={agent.id} className="rounded-lg border p-4 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="font-medium">{agent.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {agent.completed} concluídas • {agent.pending} pendentes • {agent.overdue} atrasadas
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className={`text-sm font-semibold ${agent.slaScore >= 80 ? 'text-green-600' : agent.slaScore >= 50 ? 'text-yellow-600' : 'text-destructive'}`}>{agent.slaScore}% SLA</div>
+                              <div className="text-xs text-muted-foreground">{Math.round(agent.avgResponseMinutes || 0)}m média</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
               {/* Daily Chart */}
               <Card>
                 <CardHeader>
@@ -652,3 +746,11 @@ export default function DashboardPage() {
     </AppLayout>
   );
 }
+
+
+
+
+
+
+
+
