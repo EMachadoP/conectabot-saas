@@ -28,7 +28,7 @@ export default function InboxPage() {
   const [agents, setAgents] = useState<{ id: string; name: string; email?: string | null }[]>([]);
   const [replyTarget, setReplyTarget] = useState<any | null>(null);
 
-  const { conversations, loading: loadingConversations, markConversationAsRead } = useRealtimeInbox({
+  const { conversations, markConversationAsRead } = useRealtimeInbox({
     onNewInboundMessage: playNotificationSound,
     userId: user?.id,
   });
@@ -65,10 +65,11 @@ export default function InboxPage() {
       setActiveContact(data.contacts);
 
       if (data.unread_count > 0 && shouldMarkConversationAsRead(data)) {
+        markConversationAsRead(id);
         await supabase.from('conversations').update({ unread_count: 0 }).eq('id', id);
       }
     }
-  }, [shouldMarkConversationAsRead]);
+  }, [markConversationAsRead, shouldMarkConversationAsRead]);
 
   const toggleContactBlocked = useCallback(async () => {
     if (!activeContact?.id || !activeConversationId) return;
@@ -154,6 +155,7 @@ export default function InboxPage() {
 
   const handleSelectConversation = useCallback((id: string) => {
     setReplyTarget(null);
+    setActiveConversationId(id);
     const selectedConversation = conversations.find((conversation) => conversation.id === id);
     if (shouldMarkConversationAsRead(selectedConversation)) {
       markConversationAsRead(id);

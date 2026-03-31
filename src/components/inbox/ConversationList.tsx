@@ -41,8 +41,12 @@ export function ConversationList({
   const filteredConversations = conversations
     .filter((conv) => {
       if (!conv.contact) return false;
-      const contactName = conv.contact.name || "";
-      const matchesSearch = contactName.toLowerCase().includes(search.toLowerCase());
+      const contactName = conv.contact.name || '';
+      const lastMessage = conv.last_message || '';
+      const normalizedSearch = search.toLowerCase();
+      const matchesSearch =
+        contactName.toLowerCase().includes(normalizedSearch) ||
+        lastMessage.toLowerCase().includes(normalizedSearch);
 
       if (!matchesSearch) return false;
 
@@ -50,7 +54,7 @@ export function ConversationList({
         case 'mine':
           return conv.status === 'open' && conv.assigned_to === userId;
         case 'inbox':
-          return conv.status === 'open';
+          return conv.status === 'open' && !conv.assigned_to;
         case 'resolved':
           return conv.status === 'resolved';
         default:
@@ -60,7 +64,7 @@ export function ConversationList({
 
   const countByTab = {
     mine: conversations.filter(c => c.status === 'open' && c.assigned_to === userId).length,
-    inbox: conversations.filter(c => c.status === 'open').length,
+    inbox: conversations.filter(c => c.status === 'open' && !c.assigned_to).length,
     resolved: conversations.filter(c => c.status === 'resolved').length,
   };
 
@@ -96,7 +100,7 @@ export function ConversationList({
             <ConversationItem
               key={conv.id}
               id={conv.id}
-              contactName={conv.contact.name || "Sem Nome"}
+              contactName={conv.contact.name || 'Sem Nome'}
               contactImageUrl={conv.contact.profile_picture_url}
               lastMessage={conv.last_message}
               lastMessageType={conv.last_message_type}

@@ -35,7 +35,6 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
   }, []);
 
   const fetchConversations = useCallback(async () => {
-    // Throttle fetches to max once every 300ms
     const now = Date.now();
     if (now - lastFetchTime.current < 300) return;
     lastFetchTime.current = now;
@@ -47,17 +46,41 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
       .order('last_message_at', { ascending: false });
 
     if (!error && data) {
-      setConversations(data.map((conv: any) => ({
-        id: conv.id,
-        contact: conv.contacts,
-        last_message: conv.last_message_content || 'Nenhuma mensagem',
-        last_message_type: 'text',
-        last_message_at: conv.last_message_at,
-        unread_count: conv.unread_count,
-        assigned_to: conv.assigned_to,
-        status: conv.status,
-        priority: conv.priority,
-      })));
+      const conversationIds = data.map((conv: any) => conv.id).filter(Boolean);
+      const latestMessageByConversation = new Map<string, { content: string; message_type: string; sent_at: string | null }>();
+
+      if (conversationIds.length > 0) {
+        const { data: latestMessages } = await supabase
+          .from('messages')
+          .select('conversation_id, content, message_type, sent_at')
+          .in('conversation_id', conversationIds)
+          .order('sent_at', { ascending: false });
+
+        for (const message of latestMessages || []) {
+          if (!latestMessageByConversation.has(message.conversation_id)) {
+            latestMessageByConversation.set(message.conversation_id, {
+              content: message.content || 'Nenhuma mensagem',
+              message_type: message.message_type || 'text',
+              sent_at: message.sent_at || null,
+            });
+          }
+        }
+      }
+
+      setConversations(data.map((conv: any) => {
+        const latestMessage = latestMessageByConversation.get(conv.id);
+        return {
+          id: conv.id,
+          contact: conv.contacts,
+          last_message: latestMessage?.content || 'Nenhuma mensagem',
+          last_message_type: latestMessage?.message_type || 'text',
+          last_message_at: latestMessage?.sent_at || conv.last_message_at,
+          unread_count: conv.unread_count,
+          assigned_to: conv.assigned_to,
+          status: conv.status,
+          priority: conv.priority,
+        };
+      }));
     }
     setLoading(false);
   }, []);
@@ -65,7 +88,6 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
   useEffect(() => {
     fetchConversations();
 
-    // Canal estável para Inbox global
     const channel = supabase.channel('global-inbox-updates')
       .on(
         'postgres_changes',
@@ -106,7 +128,6 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
 
           fetchConversations();
 
-          // Limpa o set ocasionalmente para não crescer infinitamente
           if (processedMessageIds.current.size > 100) {
             processedMessageIds.current = new Set([...processedMessageIds.current].slice(-50));
           }
@@ -118,7 +139,7 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
       console.log('[RealtimeInbox] Cleaning up channel');
       supabase.removeChannel(channel);
     };
-  }, [fetchConversations, onNewInboundMessage]);
+  }, [fetchConversations, onNewInboundMessage, userId]);
 
   return {
     conversations,
