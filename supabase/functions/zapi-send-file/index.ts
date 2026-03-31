@@ -54,6 +54,18 @@ function sanitizeFileName(fileName: string | null | undefined) {
   return fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || fallback;
 }
 
+function splitFileName(fileName: string) {
+  const lastDot = fileName.lastIndexOf(".");
+  if (lastDot <= 0) {
+    return { baseName: fileName, extension: null };
+  }
+
+  return {
+    baseName: fileName.slice(0, lastDot),
+    extension: fileName.slice(lastDot + 1).toLowerCase() || null,
+  };
+}
+
 function detectMessageType(fileType: string | null | undefined) {
   if (fileType?.startsWith("image/")) return { endpoint: "send-image", messageType: "image" as const };
   if (fileType?.startsWith("video/")) return { endpoint: "send-video", messageType: "video" as const };
@@ -185,13 +197,15 @@ serve(async (req) => {
 
     let publicFileUrl = file_url as string | null;
     let resolvedFileType = file_type as string | null;
-    const resolvedFileName = sanitizeFileName(file_name);
+    const sanitizedOriginalName = sanitizeFileName(file_name);
+    const { baseName, extension: originalExtension } = splitFileName(sanitizedOriginalName);
 
     if (!publicFileUrl && typeof file_base64 === "string") {
       const { mimeType, payload } = extractBase64Payload(file_base64);
       const effectiveMime = resolvedFileType || mimeType;
       const extension = effectiveMime ? (extensionByMime[effectiveMime] || effectiveMime.split("/")[1] || "bin") : "bin";
-      const objectPath = `${workspaceId}/${conversation_id}/outbound/${crypto.randomUUID()}-${resolvedFileName}.${extension}`;
+      const effectiveFileName = originalExtension === extension ? sanitizedOriginalName : `${baseName}.${extension}`;
+      const objectPath = `${workspaceId}/${conversation_id}/outbound/${crypto.randomUUID()}-${effectiveFileName}`;
       const bytes = Uint8Array.from(atob(payload), (char) => char.charCodeAt(0));
 
       const { error: uploadError } = await supabase.storage
@@ -217,6 +231,13 @@ serve(async (req) => {
     if (!publicFileUrl) {
       throw new Error("Não foi possível gerar uma URL pública para o arquivo.");
     }
+
+    const resolvedExtension = resolvedFileType
+      ? (extensionByMime[resolvedFileType] || resolvedFileType.split("/")[1] || "bin")
+      : (originalExtension || "bin");
+    const resolvedFileName = originalExtension === resolvedExtension
+      ? sanitizedOriginalName
+      : `${baseName}.${resolvedExtension}`;
 
     const { data: zapiSettings } = await supabase
       .from("zapi_settings")
@@ -265,10 +286,22 @@ serve(async (req) => {
     });
 
     const zapiResult = await zapiResponse.json();
+    console.log("[zapi-send-file] Z-API response", JSON.stringify(zapiResult));
 
     if (!zapiResponse.ok) {
       return new Response(JSON.stringify({ error: "Falha ao enviar via Z-API", details: zapiResult }), {
         status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const providerMessageId = zapiResult.messageId || zapiResult.zapiMessageId || zapiResult.id || null;
+    if (!providerMessageId) {
+      return new Response(JSON.stringify({
+        error: "A Z-API aceitou a requisição, mas não confirmou o envio do arquivo.",
+        details: zapiResult,
+      }), {
+        status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -284,7 +317,7 @@ serve(async (req) => {
         content: caption || resolvedFileName || null,
         media_url: publicFileUrl,
         provider: "zapi",
-        provider_message_id: zapiResult.messageId || zapiResult.zapiMessageId,
+        provider_message_id: providerMessageId,
         sent_at: new Date().toISOString(),
         direction: "outbound",
       })
@@ -309,7 +342,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       message_id: message.id,
-      zapi_message_id: zapiResult.messageId || zapiResult.zapiMessageId,
+      zapi_message_id: providerMessageId,
       public_url: publicFileUrl,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
