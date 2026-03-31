@@ -2,22 +2,66 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
 const normalizeRecipient = (value: unknown) => {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   return normalized || null;
 };
 
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const extensionByMime: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "video/mp4": "mp4",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "application/pdf": "pdf",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+};
+
+function extractBase64Payload(raw: string) {
+  const match = raw.match(/^data:(.*?);base64,(.*)$/);
+  if (match) {
+    return {
+      mimeType: match[1] || "application/octet-stream",
+      payload: match[2],
+    };
+  }
+
+  return {
+    mimeType: "application/octet-stream",
+    payload: raw,
+  };
+}
+
+function sanitizeFileName(fileName: string | null | undefined) {
+  const fallback = `arquivo-${Date.now()}`;
+  if (!fileName) return fallback;
+  return fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || fallback;
+}
+
+function detectMessageType(fileType: string | null | undefined) {
+  if (fileType?.startsWith("image/")) return { endpoint: "send-image", messageType: "image" as const };
+  if (fileType?.startsWith("video/")) return { endpoint: "send-video", messageType: "video" as const };
+  if (fileType?.startsWith("audio/")) return { endpoint: "send-audio", messageType: "audio" as const };
+  return { endpoint: "send-document", messageType: "document" as const };
+}
 
 serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
@@ -25,7 +69,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const requireBillingAccess = async (workspaceId: string, actionType: string, quantity = 1) => {
-      const { data, error } = await supabase.rpc('can_perform_action', {
+      const { data, error } = await supabase.rpc("can_perform_action", {
         p_workspace_id: workspaceId,
         p_action_type: actionType,
         p_quantity: quantity,
@@ -37,39 +81,44 @@ serve(async (req) => {
 
       const result = Array.isArray(data) ? data[0] : data;
       if (!result?.allowed) {
-        const message = result?.reason === 'subscription_inactive'
-          ? 'Assinatura pendente. Regularize o pagamento para continuar usando.'
-          : 'Limite do plano atingido. Faça upgrade para continuar.';
+        const message = result?.reason === "subscription_inactive"
+          ? "Assinatura pendente. Regularize o pagamento para continuar usando."
+          : "Limite do plano atingido. Faça upgrade para continuar.";
 
         return new Response(JSON.stringify({
           error: message,
-          reason: result?.reason ?? 'billing_blocked',
+          reason: result?.reason ?? "billing_blocked",
           plan_name: result?.plan_name ?? null,
           usage: result?.current_usage ?? null,
           limit: result?.usage_limit ?? null,
         }), {
           status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       return null;
     };
-    
-    const { conversation_id, file_url, file_name, file_type, caption, sender_id } = await req.json();
-    
-    console.log('Sending file via Z-API:', { conversation_id, file_type, file_name });
 
-    if (!conversation_id || !file_url) {
-      return new Response(JSON.stringify({ error: 'conversation_id and file_url are required' }), {
+    const {
+      conversation_id,
+      file_url,
+      file_name,
+      file_type,
+      file_base64,
+      caption,
+      sender_id,
+    } = await req.json();
+
+    if (!conversation_id || (!file_url && !file_base64)) {
+      return new Response(JSON.stringify({ error: "conversation_id e arquivo são obrigatórios" }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Get conversation and contact info
     const { data: conversation, error: convError } = await supabase
-      .from('conversations')
+      .from("conversations")
       .select(`
         id,
         workspace_id,
@@ -81,14 +130,13 @@ serve(async (req) => {
           is_group
         )
       `)
-      .eq('id', conversation_id)
+      .eq("id", conversation_id)
       .single();
 
     if (convError || !conversation) {
-      console.error('Conversation not found:', convError);
-      return new Response(JSON.stringify({ error: 'Conversation not found' }), {
+      return new Response(JSON.stringify({ error: "Conversa não encontrada" }), {
         status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -96,144 +144,154 @@ serve(async (req) => {
     const contact = (conversation as any).contacts;
     const recipientPhone = normalizeRecipient(contact.chat_lid) || normalizeRecipient(contact.lid) || normalizeRecipient(contact.phone);
 
-    const billingBlock = await requireBillingAccess(workspaceId, 'outbound_message', 1);
+    const billingBlock = await requireBillingAccess(workspaceId, "outbound_message", 1);
     if (billingBlock) return billingBlock;
 
     if (!recipientPhone) {
-      return new Response(JSON.stringify({ error: 'No valid recipient identifier' }), {
+      return new Response(JSON.stringify({ error: "Contato sem identificador válido" }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    let publicFileUrl = file_url as string | null;
+    let resolvedFileType = file_type as string | null;
+    const resolvedFileName = sanitizeFileName(file_name);
+
+    if (!publicFileUrl && typeof file_base64 === "string") {
+      const { mimeType, payload } = extractBase64Payload(file_base64);
+      const effectiveMime = resolvedFileType || mimeType;
+      const extension = effectiveMime ? (extensionByMime[effectiveMime] || effectiveMime.split("/")[1] || "bin") : "bin";
+      const objectPath = `${workspaceId}/${conversation_id}/outbound/${crypto.randomUUID()}-${resolvedFileName}.${extension}`;
+      const bytes = Uint8Array.from(atob(payload), (char) => char.charCodeAt(0));
+
+      const { error: uploadError } = await supabase.storage
+        .from("whatsapp-media")
+        .upload(objectPath, bytes, {
+          contentType: effectiveMime || "application/octet-stream",
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw new Error(`Falha ao armazenar arquivo: ${uploadError.message}`);
+      }
+
+      const { data: publicData } = supabase.storage
+        .from("whatsapp-media")
+        .getPublicUrl(objectPath);
+
+      publicFileUrl = publicData.publicUrl;
+      resolvedFileType = effectiveMime;
+    }
+
+    if (!publicFileUrl) {
+      throw new Error("Não foi possível gerar uma URL pública para o arquivo.");
     }
 
     const { data: zapiSettings } = await supabase
-      .from('zapi_settings')
-      .select('*')
-      .eq('workspace_id', workspaceId)
+      .from("zapi_settings")
+      .select("*")
+      .eq("workspace_id", workspaceId)
       .limit(1)
       .maybeSingle();
 
-    // Get Z-API credentials for the conversation workspace
-    const instanceId = zapiSettings?.zapi_instance_id || Deno.env.get('ZAPI_INSTANCE_ID');
-    const token = zapiSettings?.zapi_token || Deno.env.get('ZAPI_TOKEN');
-    const clientToken = zapiSettings?.zapi_security_token || Deno.env.get('ZAPI_CLIENT_TOKEN');
+    const instanceId = zapiSettings?.zapi_instance_id || Deno.env.get("ZAPI_INSTANCE_ID");
+    const token = zapiSettings?.zapi_token || Deno.env.get("ZAPI_TOKEN");
+    const clientToken = zapiSettings?.zapi_security_token || Deno.env.get("ZAPI_CLIENT_TOKEN");
 
     if (!instanceId || !token) {
-      console.error('Z-API credentials not configured');
-      return new Response(JSON.stringify({ error: 'Z-API credentials not configured' }), {
+      return new Response(JSON.stringify({ error: "Credenciais Z-API não configuradas" }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Determine Z-API endpoint based on file type
-    let endpoint = 'send-document';
-    let messageType: 'image' | 'video' | 'audio' | 'document' = 'document';
-    
-    if (file_type?.startsWith('image/')) {
-      endpoint = 'send-image';
-      messageType = 'image';
-    } else if (file_type?.startsWith('video/')) {
-      endpoint = 'send-video';
-      messageType = 'video';
-    } else if (file_type?.startsWith('audio/')) {
-      endpoint = 'send-audio';
-      messageType = 'audio';
-    }
-
+    const { endpoint, messageType } = detectMessageType(resolvedFileType);
     const zapiUrl = `https://api.z-api.io/instances/${instanceId}/token/${token}/${endpoint}`;
-    
     const zapiPayload: Record<string, string> = {
       phone: recipientPhone,
     };
 
-    // Different payload structure for different file types
-    if (messageType === 'image') {
-      zapiPayload.image = file_url;
+    if (messageType === "image") {
+      zapiPayload.image = publicFileUrl;
       if (caption) zapiPayload.caption = caption;
-    } else if (messageType === 'video') {
-      zapiPayload.video = file_url;
+    } else if (messageType === "video") {
+      zapiPayload.video = publicFileUrl;
       if (caption) zapiPayload.caption = caption;
-    } else if (messageType === 'audio') {
-      zapiPayload.audio = file_url;
+    } else if (messageType === "audio") {
+      zapiPayload.audio = publicFileUrl;
     } else {
-      zapiPayload.document = file_url;
-      if (file_name) zapiPayload.fileName = file_name;
+      zapiPayload.document = publicFileUrl;
+      zapiPayload.fileName = resolvedFileName;
     }
 
-    console.log('Calling Z-API:', { endpoint, payload: zapiPayload });
-
     const zapiResponse = await fetch(zapiUrl, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        ...(clientToken ? { 'Client-Token': clientToken } : {}),
+        "Content-Type": "application/json",
+        ...(clientToken ? { "Client-Token": clientToken } : {}),
       },
       body: JSON.stringify(zapiPayload),
     });
 
     const zapiResult = await zapiResponse.json();
-    console.log('Z-API response:', zapiResult);
 
     if (!zapiResponse.ok) {
-      return new Response(JSON.stringify({ error: 'Failed to send via Z-API', details: zapiResult }), {
+      return new Response(JSON.stringify({ error: "Falha ao enviar via Z-API", details: zapiResult }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Save message to database
     const { data: message, error: msgError } = await supabase
-      .from('messages')
+      .from("messages")
       .insert({
         workspace_id: workspaceId,
         conversation_id,
-        sender_type: 'agent',
+        sender_type: "agent",
         sender_id,
         message_type: messageType,
-        content: caption || file_name || null,
-        media_url: file_url,
-        provider: 'zapi',
+        content: caption || resolvedFileName || null,
+        media_url: publicFileUrl,
+        provider: "zapi",
         provider_message_id: zapiResult.messageId || zapiResult.zapiMessageId,
         sent_at: new Date().toISOString(),
-        direction: 'outbound',
+        direction: "outbound",
       })
       .select()
       .single();
 
     if (msgError) {
-      console.error('Error saving message:', msgError);
       throw msgError;
     }
 
-    // Update conversation
     await supabase
-      .from('conversations')
+      .from("conversations")
       .update({ last_message_at: new Date().toISOString() })
-      .eq('id', conversation_id);
+      .eq("id", conversation_id);
 
-    await supabase.rpc('record_usage', {
+    await supabase.rpc("record_usage", {
       p_workspace_id: workspaceId,
-      p_metric_name: 'messages_sent',
+      p_metric_name: "messages_sent",
       p_quantity: 1,
     });
 
-    console.log('File message saved:', message.id);
-
-    return new Response(JSON.stringify({ 
-      success: true, 
+    return new Response(JSON.stringify({
+      success: true,
       message_id: message.id,
       zapi_message_id: zapiResult.messageId || zapiResult.zapiMessageId,
+      public_url: publicFileUrl,
     }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-
   } catch (error) {
-    console.error('Send file error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+    console.error("[zapi-send-file]", errorMessage);
+
     return new Response(JSON.stringify({ error: errorMessage }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

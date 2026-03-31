@@ -53,6 +53,21 @@ export default function InboxPage() {
     return error instanceof Error ? error.message : 'Erro desconhecido';
   }, []);
 
+  const fileToDataUrl = useCallback((file: File) => {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error('Falha ao ler o arquivo selecionado.'));
+      };
+      reader.onerror = () => reject(new Error('Falha ao ler o arquivo selecionado.'));
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
   const fetchActiveConversationDetails = useCallback(async (id: string) => {
     const { data } = await supabase
       .from('conversations')
@@ -222,6 +237,75 @@ export default function InboxPage() {
     }
   };
 
+  const handleSendFile = useCallback(async (file: File) => {
+    if (!user) {
+      toast({ variant: 'destructive', title: 'Sessão ausente', description: 'Faça login novamente.' });
+      return;
+    }
+    if (!activeConversationId) {
+      toast({ variant: 'destructive', title: 'Nenhuma conversa selecionada' });
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      toast({
+        variant: 'destructive',
+        title: 'Arquivo muito grande',
+        description: 'Envie arquivos de até 15 MB.',
+      });
+      return;
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) throw new Error('Sessão perdida. Faça login novamente.');
+
+      const fileBase64 = await fileToDataUrl(file);
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zapi-send-file`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          conversation_id: activeConversationId,
+          file_name: file.name,
+          file_type: file.type || 'application/octet-stream',
+          file_base64: fileBase64,
+          sender_id: user.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        if (response.status === 402) {
+          toast({
+            variant: 'destructive',
+            title: 'Limite atingido ou assinatura pendente',
+            description: 'Regularize o plano para continuar enviando arquivos.',
+          });
+          navigate('/settings/billing');
+          return;
+        }
+        throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
+      }
+
+      toast({
+        title: 'Arquivo enviado',
+        description: `${file.name} foi enviado com sucesso.`,
+      });
+    } catch (error: any) {
+      console.error('Erro ao enviar arquivo:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao enviar arquivo',
+        description: error.message || 'Erro desconhecido',
+      });
+    }
+  }, [activeConversationId, fileToDataUrl, navigate, toast, user]);
+
   const handleResolveConversation = async () => {
     if (!activeConversationId) return;
 
@@ -292,6 +376,7 @@ export default function InboxPage() {
                   conversationId={activeConversationId}
                   conversationStatus={activeConvData?.status}
                   onSendMessage={handleSendMessage}
+                  onSendFile={handleSendFile}
                   onReplyMessage={setReplyTarget}
                   replyTarget={replyTarget}
                   onCancelReply={() => setReplyTarget(null)}
@@ -349,6 +434,7 @@ export default function InboxPage() {
                       conversationId={activeConversationId}
                       conversationStatus={activeConvData?.status}
                       onSendMessage={handleSendMessage}
+                      onSendFile={handleSendFile}
                       onReplyMessage={setReplyTarget}
                       replyTarget={replyTarget}
                       onCancelReply={() => setReplyTarget(null)}

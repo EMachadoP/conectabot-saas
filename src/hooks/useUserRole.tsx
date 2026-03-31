@@ -64,12 +64,13 @@ export function useUserRole() {
 
   const role = useMemo<WorkspaceRole>(() => {
     if (!user) return 'agent';
+    const fallbackRole = metadataRole ?? 'agent';
     if (activeTenant?.id) {
-      if (roleLoading) return 'agent';
-      return dbRole ?? 'agent';
+      if (dbRole) return dbRole;
+      return fallbackRole;
     }
-    return metadataRole ?? 'agent';
-  }, [activeTenant?.id, dbRole, metadataRole, roleLoading, user]);
+    return fallbackRole;
+  }, [activeTenant?.id, dbRole, metadataRole, user]);
 
   const roles = useMemo(() => {
     if (!user) return [] as WorkspaceRole[];
