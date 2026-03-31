@@ -12,6 +12,10 @@ function isOperationalIssue(text: string) {
   return /(câmera|camera|cftv|dvr|gravador|nvr|port[aã]o|motor|cerca|interfone|controle de acesso|catraca|fechadura|tv coletiva|antena|acesso remoto|sem imagem|sem sinal|travado|n[aã]o abre|n[aã]o fecha|parou|quebrado|defeito)/i.test(text);
 }
 
+function isCommercialFlow(text: string) {
+  return /(or[cç]amento|cota[cç][aã]o|proposta comercial|proposta|cnpj|e-?mail|email|hospital|cl[ií]nica|distribuidor|representante|revenda|revendedor|compra|compras|pedido comercial|cat[aá]logo|portf[oó]lio|produto|produtos)/i.test(text);
+}
+
 function looksLikeApartment(text: string) {
   return /^\s*\d{1,6}[A-Za-z]?\s*$/.test(text.trim());
 }
@@ -376,9 +380,10 @@ serve(async (req) => {
     const isProvidingApartment = looksLikeApartment(lastUserMsgText) && hasOperationalContext;
     const needsApartment = /(interfone|tv|controle|apartamento|apto|unidade)/i.test(recentText);
     const canOpenNow = hasOperationalContext && (!needsApartment || Boolean(aptCandidate));
-    const operationalIntentDetected = hasOperationalContext || isProvidingApartment;
+    const commercialIntentDetected = isCommercialFlow(recentText);
+    const protocolEligibleIntent = (hasOperationalContext || isProvidingApartment) && !commercialIntentDetected;
 
-    if (protocolGenerationEnabled && conversationId && (canOpenNow || isProvidingApartment)) {
+    if (protocolGenerationEnabled && protocolEligibleIntent && conversationId && (canOpenNow || isProvidingApartment)) {
       if (needsApartment && !aptCandidate) {
         console.log('[TICKET] Deterministic block: Need apartment for issue:', lastIssueMsg?.content);
         return new Response(JSON.stringify({
@@ -495,7 +500,7 @@ NUNCA invente preços ou prazos.`;
     const apiKey = selectedProviderEntry.secretValue!;
 
     // Tool definition (using create_protocol as name to avoid confusion)
-    const protocolTool = protocolGenerationEnabled && operationalIntentDetected
+    const protocolTool = protocolGenerationEnabled && protocolEligibleIntent
       ? [{
           type: "function",
           function: {
@@ -596,7 +601,7 @@ NUNCA invente preços ou prazos.`;
 
     // --- FALLBACK INTENT DETECTION ---
     const aiSaidWillRegister = /vou registrar|vou abrir|vou encaminhar|registrei/i.test(generatedText);
-    if (protocolGenerationEnabled && operationalIntentDetected && !functionCall && aiSaidWillRegister) {
+    if (protocolGenerationEnabled && protocolEligibleIntent && !functionCall && aiSaidWillRegister) {
       console.warn('FALLBACK: Intent detected. Forcing protocol creation...');
       functionCall = {
         name: 'create_protocol',
