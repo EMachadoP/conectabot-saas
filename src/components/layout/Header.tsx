@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown, ListTodo, Plus } from 'lucide-react';
+import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown, ListTodo } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -106,10 +106,6 @@ export function Header() {
               );
             })}
 
-            <Button variant="outline" size="sm" className="gap-2 ml-2" onClick={() => setShowQuickTaskModal(true)}>
-              <Plus className="w-4 h-4" />
-              Nova tarefa
-            </Button>
           </nav>
         </div>
 
