@@ -37,10 +37,30 @@ export function ChatInputArea({ onSendMessage, onSendFile, isResolved, isMobile,
     onSendFile(file);
   };
 
+  const insertLineBreak = () => {
+    setMessage((current) => `${current}\n`);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+
+    if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      insertLineBreak();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const fileItem = items.find((item) => item.kind === 'file');
+
+    if (fileItem) {
+      e.preventDefault();
+      handleSelectedFile(fileItem.getAsFile());
     }
   };
 
@@ -141,6 +161,7 @@ export function ChatInputArea({ onSendMessage, onSendFile, isResolved, isMobile,
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           className="min-h-[44px] max-h-40 flex-1 resize-none"
           autoComplete="off"
         />
@@ -150,7 +171,7 @@ export function ChatInputArea({ onSendMessage, onSendFile, isResolved, isMobile,
       </div>
 
       <div className="mt-2 text-xs text-muted-foreground">
-        `Enter` envia. `Ctrl + Enter` ou `Shift + Enter` quebra linha. Arraste um arquivo para anexar.
+        `Enter` envia. `Ctrl + Enter` ou `Shift + Enter` quebra linha. Arraste ou cole um arquivo para anexar.
       </div>
     </div>
   );

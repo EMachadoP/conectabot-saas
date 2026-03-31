@@ -31,6 +31,7 @@ const extensionByMime: Record<string, string> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
   "application/vnd.ms-excel": "xls",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "text/html": "html",
 };
 
 function extractBase64Payload(raw: string) {
@@ -66,11 +67,11 @@ function splitFileName(fileName: string) {
   };
 }
 
-function detectMessageType(fileType: string | null | undefined) {
+function detectMessageType(fileType: string | null | undefined, extension: string) {
   if (fileType?.startsWith("image/")) return { endpoint: "send-image", messageType: "image" as const };
   if (fileType?.startsWith("video/")) return { endpoint: "send-video", messageType: "video" as const };
   if (fileType?.startsWith("audio/")) return { endpoint: "send-audio", messageType: "audio" as const };
-  return { endpoint: "send-document", messageType: "document" as const };
+  return { endpoint: `send-document/${extension}`, messageType: "document" as const };
 }
 
 serve(async (req) => {
@@ -257,7 +258,7 @@ serve(async (req) => {
       });
     }
 
-    const { endpoint, messageType } = detectMessageType(resolvedFileType);
+    const { endpoint, messageType } = detectMessageType(resolvedFileType, resolvedExtension);
     const zapiUrl = `https://api.z-api.io/instances/${instanceId}/token/${token}/${endpoint}`;
     const zapiPayload: Record<string, string> = {
       phone: recipientPhone,
