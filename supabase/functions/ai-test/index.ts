@@ -15,8 +15,34 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const authHeader = req.headers.get('Authorization');
+
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Não autorizado' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseAuth.auth.getUser();
+
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Sessão inválida ou expirada' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const { message, teamId, providerId, workspaceId } = await req.json();
 
@@ -28,6 +54,32 @@ serve(async (req) => {
     }
 
     const resolvedWorkspaceId = workspaceId || teamId || null;
+
+    if (!resolvedWorkspaceId) {
+      return new Response(
+        JSON.stringify({ error: 'Workspace obrigatório para teste da IA' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { data: canManage, error: permissionError } = await supabase.rpc('platform_can_manage_workspace', {
+      p_workspace_id: resolvedWorkspaceId,
+      p_user_id: user.id,
+    });
+
+    if (permissionError) {
+      return new Response(
+        JSON.stringify({ error: `Erro ao validar permissão: ${permissionError.message}` }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!canManage) {
+      return new Response(
+        JSON.stringify({ error: 'Acesso negado ao teste de IA deste workspace' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Get workspace settings
     const { data: settings } = resolvedWorkspaceId
