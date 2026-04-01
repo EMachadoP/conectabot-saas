@@ -35,6 +35,41 @@ const extractRealPhone = (...candidates: unknown[]) => {
   return null;
 };
 
+const findStickyAssignee = async (supabase: any, conversationId: string, workspaceId: string) => {
+  const { data: lastAgentMessage } = await supabase
+    .from('messages')
+    .select('sender_id, sender_name')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'agent')
+    .not('sender_id', 'is', null)
+    .order('sent_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const agentId = lastAgentMessage?.sender_id;
+  if (!agentId) return null;
+
+  const { data: membership } = await supabase
+    .from('tenant_members')
+    .select('user_id, role, is_active, profiles!tenant_members_user_id_fkey(display_name, name, email)')
+    .eq('tenant_id', workspaceId)
+    .eq('user_id', agentId)
+    .maybeSingle();
+
+  if (!membership?.is_active) return null;
+
+  const role = membership.role ?? '';
+  if (!['owner', 'admin', 'agent'].includes(role)) return null;
+
+  const profile = membership.profiles;
+  const agentName = profile?.display_name || profile?.name || profile?.email || lastAgentMessage.sender_name || 'agente responsável';
+
+  return {
+    agentId,
+    agentName,
+  };
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -236,13 +271,13 @@ serve(async (req) => {
     // 5. Salvar/Atualizar Conversa (Lógica robusta para lidar com thread_key legada)
     const conversationKey = chatLid;
     let { data: existingConv } = await supabase.from('conversations')
-      .select('id')
+      .select('id, assigned_to')
       .eq('chat_id', conversationKey)
       .maybeSingle();
 
     if (!existingConv) {
       const legacyConv = await supabase.from('conversations')
-        .select('id')
+        .select('id, assigned_to')
         .eq('thread_key', conversationKey)
         .maybeSingle();
 
@@ -251,7 +286,7 @@ serve(async (req) => {
 
     if (!existingConv) {
       const contactConv = await supabase.from('conversations')
-        .select('id')
+        .select('id, assigned_to')
         .eq('contact_id', contact.id)
       .maybeSingle();
 
@@ -261,20 +296,44 @@ serve(async (req) => {
     let conv: { id: string };
 
     if (existingConv) {
+      const stickyAssignee = !fromMe && !existingConv.assigned_to
+        ? await findStickyAssignee(supabase, existingConv.id, workspaceId)
+        : null;
+
+      const conversationUpdate: Record<string, unknown> = {
+        last_message_at: now,
+        chat_id: conversationKey,
+        thread_key: conversationKey,
+        contact_id: contact.id,
+        status: 'open',
+      };
+
+      if (stickyAssignee) {
+        conversationUpdate.assigned_to = stickyAssignee.agentId;
+        conversationUpdate.assigned_at = now;
+        conversationUpdate.human_control = true;
+        conversationUpdate.ai_paused_until = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      }
+
       const { data: updated, error: updateErr } = await supabase.from('conversations')
-        .update({
-          last_message_at: now,
-          chat_id: conversationKey,
-          thread_key: conversationKey,
-          contact_id: contact.id,
-          status: 'open'
-        })
+        .update(conversationUpdate)
         .eq('id', existingConv.id)
         .select('id')
         .single();
 
       if (updateErr || !updated) throw new Error(`Erro ao atualizar conversa: ${updateErr?.message}`);
       conv = updated;
+
+      if (stickyAssignee) {
+        await supabase.from('messages').insert({
+          workspace_id: workspaceId,
+          conversation_id: conv.id,
+          sender_type: 'system',
+          message_type: 'system',
+          content: `↩️ Conversa retornou e foi redirecionada automaticamente para ${stickyAssignee.agentName}.`,
+          sent_at: now,
+        });
+      }
     } else {
       const { data: created, error: createErr } = await supabase.from('conversations')
         .upsert({

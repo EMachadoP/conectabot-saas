@@ -7,6 +7,37 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+const findStickyAssignee = async (supabase: any, conversationId: string, workspaceId: string) => {
+    const { data: lastAgentMessage } = await supabase
+        .from('messages')
+        .select('sender_id, sender_name')
+        .eq('conversation_id', conversationId)
+        .eq('sender_type', 'agent')
+        .not('sender_id', 'is', null)
+        .order('sent_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    const agentId = lastAgentMessage?.sender_id;
+    if (!agentId) return null;
+
+    const { data: membership } = await supabase
+        .from('tenant_members')
+        .select('user_id, role, is_active, profiles!tenant_members_user_id_fkey(display_name, name, email)')
+        .eq('tenant_id', workspaceId)
+        .eq('user_id', agentId)
+        .maybeSingle();
+
+    if (!membership?.is_active) return null;
+    if (!['owner', 'admin', 'agent'].includes(membership.role ?? '')) return null;
+
+    const profile = membership.profiles;
+    return {
+        agentId,
+        agentName: profile?.display_name || profile?.name || profile?.email || lastAgentMessage.sender_name || 'agente responsável',
+    };
+};
+
 serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -156,15 +187,67 @@ serve(async (req) => {
             }
 
             // Upsert Conversation
-            const { data: conv } = await supabase.from('conversations').upsert({
-                workspace_id: workspaceId,
-                contact_id: contact.id,
-                chat_id: chatJid,
-                thread_key: chatJid,
-                status: 'open',
-                last_message_at: now
-            }, { onConflict: 'thread_key' }).select('id').single();
+            const { data: existingConversation } = await supabase
+                .from('conversations')
+                .select('id, assigned_to')
+                .eq('thread_key', chatJid)
+                .maybeSingle();
 
+            let conv: any = null;
+
+            if (existingConversation) {
+                const stickyAssignee = !existingConversation.assigned_to
+                    ? await findStickyAssignee(supabase, existingConversation.id, workspaceId)
+                    : null;
+
+                const conversationUpdate: Record<string, unknown> = {
+                    workspace_id: workspaceId,
+                    contact_id: contact.id,
+                    chat_id: chatJid,
+                    thread_key: chatJid,
+                    status: 'open',
+                    last_message_at: now,
+                };
+
+                if (stickyAssignee) {
+                    conversationUpdate.assigned_to = stickyAssignee.agentId;
+                    conversationUpdate.assigned_at = now;
+                    conversationUpdate.human_control = true;
+                    conversationUpdate.ai_paused_until = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+                }
+
+                const updateResult = await supabase.from('conversations')
+                    .update(conversationUpdate)
+                    .eq('id', existingConversation.id)
+                    .select('id')
+                    .single();
+
+                if (updateResult.error || !updateResult.data) throw updateResult.error || new Error("Conversation update failed");
+                conv = updateResult.data;
+
+                if (stickyAssignee) {
+                    await supabase.from('messages').insert({
+                        workspace_id: workspaceId,
+                        conversation_id: conv.id,
+                        sender_type: 'system',
+                        message_type: 'system',
+                        content: `↩️ Conversa retornou e foi redirecionada automaticamente para ${stickyAssignee.agentName}.`,
+                        sent_at: now,
+                    });
+                }
+            } else {
+                const createResult = await supabase.from('conversations').upsert({
+                    workspace_id: workspaceId,
+                    contact_id: contact.id,
+                    chat_id: chatJid,
+                    thread_key: chatJid,
+                    status: 'open',
+                    last_message_at: now
+                }, { onConflict: 'thread_key' }).select('id').single();
+
+                if (createResult.error || !createResult.data) throw createResult.error || new Error("Conversation upsert failed");
+                conv = createResult.data;
+            }
             if (!conv) throw new Error("Conversation upsert failed");
 
             // Increment Unread

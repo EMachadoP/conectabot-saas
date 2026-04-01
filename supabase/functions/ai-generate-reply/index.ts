@@ -410,7 +410,7 @@ serve(async (req) => {
 
         const protocolCode = ticketData.protocol?.protocol_code || ticketData.protocol_code;
         return new Response(JSON.stringify({
-          text: `Certo. Já registrei o chamado sob o protocolo **${protocolCode}** e encaminhei para a equipe operacional. Vamos dar sequência por aqui.`,
+          text: `Certo. Já registrei o chamado sob o protocolo **${protocolCode}**. Nossa equipe operacional vai dar sequência por aqui.`,
           finish_reason: 'DETERMINISTIC_SUCCESS',
           provider: 'deterministic',
           model: 'keyword-detection',
@@ -624,7 +624,7 @@ NUNCA invente preços ou prazos.`;
       try {
         const ticketData = await executeCreateProtocol(supabase, supabaseUrl, supabaseServiceKey, conversationId!, participant_id, functionCall.args);
         const protocolCode = ticketData.protocol?.protocol_code || ticketData.protocol_code;
-        generatedText = `Certo. Já registrei o chamado sob o protocolo **${protocolCode}** e encaminhei para a equipe operacional. Vamos dar sequência por aqui.`;
+        generatedText = `Certo. Já registrei o chamado sob o protocolo **${protocolCode}**. Nossa equipe operacional vai dar sequência por aqui.`;
       } catch (e) {
         console.error('Tool call failed:', e);
         console.error('Tool call error details:', {
