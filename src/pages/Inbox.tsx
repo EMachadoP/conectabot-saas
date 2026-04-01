@@ -181,6 +181,14 @@ export default function InboxPage() {
     navigate(`/inbox/${id}`);
   }, [conversations, markConversationAsRead, navigate, shouldMarkConversationAsRead]);
 
+  const handleClearSelection = useCallback(() => {
+    setReplyTarget(null);
+    setActiveConversationId(null);
+    setActiveContact(null);
+    setActiveConvData(null);
+    navigate('/inbox');
+  }, [navigate]);
+
   const handleSendMessage = async (content: string) => {
     if (!user) {
       toast({ variant: 'destructive', title: 'Sessão ausente', description: 'Faça login novamente.' });
@@ -402,6 +410,7 @@ export default function InboxPage() {
               activeConversationId={activeConversationId}
               userId={user.id}
               onSelectConversation={handleSelectConversation}
+              onClearSelection={handleClearSelection}
               isMobile={isMobile}
             />
           )
@@ -413,6 +422,7 @@ export default function InboxPage() {
                 activeConversationId={activeConversationId}
                 userId={user.id}
                 onSelectConversation={handleSelectConversation}
+                onClearSelection={handleClearSelection}
                 isMobile={isMobile}
               />
             </Panel>

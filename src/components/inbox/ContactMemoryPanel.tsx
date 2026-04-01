@@ -36,7 +36,7 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [memoryId, setMemoryId] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [form, setForm] = useState<ContactMemoryState>({
     ...emptyState,
     contact_name: contact.name || '',
@@ -72,7 +72,7 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
             ...emptyState,
             contact_name: contact.name || '',
           });
-          setIsExpanded(true);
+          setIsExpanded(false);
         }
       } catch (error: any) {
         toast({
@@ -173,7 +173,7 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
         <div className="flex items-center justify-end">
           <Button size="sm" variant="outline" onClick={() => setIsExpanded(true)}>
             <NotebookPen className="mr-2 h-4 w-4" />
-            Editar memória do contato
+            {memoryId ? 'Editar memória do contato' : 'Abrir memória do contato'}
           </Button>
         </div>
       </div>
@@ -190,11 +190,9 @@ export function ContactMemoryPanel({ contact, currentUserId }: ContactMemoryPane
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {memoryId && (
-            <Button size="sm" variant="outline" onClick={() => setIsExpanded(false)} disabled={saving}>
-              Ocultar
-            </Button>
-          )}
+          <Button size="sm" variant="outline" onClick={() => setIsExpanded(false)} disabled={saving}>
+            Ocultar
+          </Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             Salvar dados

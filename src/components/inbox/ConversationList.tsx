@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -23,6 +23,7 @@ interface ConversationListProps {
   activeConversationId: string | null;
   userId: string;
   onSelectConversation: (id: string) => void;
+  onClearSelection?: () => void;
   isMobile?: boolean;
 }
 
@@ -33,6 +34,7 @@ export function ConversationList({
   activeConversationId,
   userId,
   onSelectConversation,
+  onClearSelection,
   isMobile = false,
 }: ConversationListProps) {
   const [search, setSearch] = useState('');
@@ -67,6 +69,15 @@ export function ConversationList({
     inbox: conversations.filter(c => c.status === 'open').length,
     resolved: conversations.filter(c => c.status === 'resolved').length,
   };
+
+  useEffect(() => {
+    if (!activeConversationId) return;
+
+    const activeStillVisible = filteredConversations.some((conversation) => conversation.id === activeConversationId);
+    if (!activeStillVisible) {
+      onClearSelection?.();
+    }
+  }, [activeConversationId, filteredConversations, onClearSelection]);
 
   return (
     <div className={`w-full border-r border-border flex flex-col bg-card h-full overflow-hidden`}>
