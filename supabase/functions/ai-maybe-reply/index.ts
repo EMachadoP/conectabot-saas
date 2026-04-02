@@ -30,6 +30,32 @@ function removeRepeatedLead(previousText: string | null | undefined, nextText: s
   return remainder.replace(/^[\s\-–—:]+/, '').trimStart();
 }
 
+function normalizeAgentLabel(text: string | null | undefined) {
+  return (text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function resolveAgentFromText(text: string | null | undefined, agents: Array<{ id: string; name: string; email?: string | null }>) {
+  const haystack = normalizeAgentLabel(text);
+  if (!haystack) return null;
+
+  for (const agent of agents) {
+    const fullName = normalizeAgentLabel(agent.name);
+    const firstName = fullName.split(' ')[0] || '';
+    const emailPrefix = normalizeAgentLabel(agent.email?.split('@')[0] || '');
+
+    if (fullName && haystack.includes(fullName)) return agent;
+    if (firstName && firstName.length >= 4 && haystack.includes(firstName)) return agent;
+    if (emailPrefix && emailPrefix.length >= 4 && haystack.includes(emailPrefix)) return agent;
+  }
+
+  return null;
+}
+
 serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -226,6 +252,24 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
+    const { data: workspaceMembersRaw } = await supabase
+      .from('tenant_members')
+      .select('user_id, role, is_active, profiles!tenant_members_user_id_fkey(display_name, name, email)')
+      .eq('tenant_id', conv.workspace_id)
+      .eq('is_active', true);
+
+    const workspaceAgents = (workspaceMembersRaw || [])
+      .filter((member: any) => ['owner', 'admin', 'agent'].includes(member.role || ''))
+      .map((member: any) => ({
+        id: member.user_id,
+        name:
+          member.profiles?.display_name ||
+          member.profiles?.name ||
+          member.profiles?.email?.split('@')[0] ||
+          'Agente',
+        email: member.profiles?.email || null,
+      }));
+
     // 5. Montar contexto complementar do workspace/conversa
     let promptContext = '';
     const isRegisteredCustomer = Boolean(
@@ -296,22 +340,63 @@ serve(async (req) => {
       promptContext += `\nEvite interrogatorio longo ou coleta desnecessaria.`;
     }
 
-    const assignedAgentName = (conv.assigned_profile as any)?.name || null;
-    const fallbackAgentName = lastAgentMessage?.sender_name || null;
-    const preferredAgentName = assignedAgentName || fallbackAgentName;
+    const assignedAgent =
+      workspaceAgents.find((agent) => agent.id === conv.assigned_to) || null;
+    const memoryPreferredAgent = resolveAgentFromText(contactMemory?.notes, workspaceAgents);
+    const fallbackAgent =
+      (lastAgentMessage?.sender_id
+        ? workspaceAgents.find((agent) => agent.id === lastAgentMessage.sender_id)
+        : null) ||
+      resolveAgentFromText(lastAgentMessage?.sender_name, workspaceAgents);
+
+    const preferredAgent = assignedAgent || memoryPreferredAgent || fallbackAgent || null;
+    const preferredAgentName = preferredAgent?.name || null;
+
+    if (preferredAgent && conv.assigned_to !== preferredAgent.id) {
+      const nowIso = new Date().toISOString();
+      const pauseUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+      await supabase
+        .from('conversations')
+        .update({
+          assigned_to: preferredAgent.id,
+          assigned_at: nowIso,
+          status: 'open',
+          human_control: true,
+          ai_paused_until: pauseUntil,
+        })
+        .eq('id', conversation_id);
+
+      await supabase.from('messages').insert({
+        conversation_id,
+        workspace_id: conv.workspace_id,
+        tenant_id: conv.workspace_id,
+        sender_type: 'system',
+        message_type: 'system',
+        content: `👥 Atribuída para ${preferredAgent.name} automaticamente. IA pausada por 30 minutos.`,
+        sent_at: nowIso,
+      });
+
+      conv.assigned_to = preferredAgent.id;
+      conv.assigned_profile = { name: preferredAgent.name };
+      conv.human_control = true;
+      conv.ai_paused_until = pauseUntil;
+    }
 
     if (preferredAgentName) {
       promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
       promptContext += `\nDIRECIONAMENTO PRIORITARIO`;
       promptContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
       promptContext += `\nEste contato deve ser priorizado para ${preferredAgentName}.`;
-      if (assignedAgentName) {
-        promptContext += `\nEssa conversa ja esta atribuida a ${assignedAgentName}.`;
+      if (assignedAgent) {
+        promptContext += `\nEssa conversa ja esta atribuida a ${preferredAgentName}.`;
       } else {
-        promptContext += `\nUltimo agente humano que falou com esse contato: ${fallbackAgentName}.`;
+        promptContext += `\nEste contato deve ser atendido por ${preferredAgentName} conforme o historico ou memoria salva.`;
       }
       promptContext += `\nSe o cliente retomar o assunto, sinalize continuidade com esse responsavel para encurtar o atendimento.`;
     }
+
+    promptContext += `\n\nNao cite nome de agente especifico nem diga que encaminhou para alguem se o sistema nao tiver definido um responsavel real no contexto acima.`;
 
     // Add message variation instructions
     promptContext += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
