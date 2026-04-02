@@ -331,6 +331,36 @@ export default function InboxPage() {
     }
   };
 
+  const handleReopenConversation = async () => {
+    if (!activeConversationId) return;
+
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .update({
+          status: 'open',
+          resolved_at: null,
+          resolved_by: null,
+        })
+        .eq('id', activeConversationId);
+
+      if (error) throw error;
+
+      await fetchActiveConversationDetails(activeConversationId);
+      toast({
+        title: 'Conversa reaberta',
+        description: 'A conversa voltou para a caixa de entrada.',
+      });
+    } catch (error: any) {
+      console.error('Erro ao reabrir conversa:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao reabrir conversa',
+        description: error.message || 'Erro desconhecido',
+      });
+    }
+  };
+
   const handleAssignAgent = useCallback(async (agentId: string) => {
     if (!activeConversationId) return;
 
@@ -388,6 +418,7 @@ export default function InboxPage() {
                   replyTarget={replyTarget}
                   onCancelReply={() => setReplyTarget(null)}
                   onResolveConversation={handleResolveConversation}
+                  onReopenConversation={handleReopenConversation}
                   onAssignAgent={handleAssignAgent}
                   onToggleBlockContact={toggleContactBlocked}
                   aiMode={activeConvData?.ai_mode}
@@ -448,6 +479,7 @@ export default function InboxPage() {
                       replyTarget={replyTarget}
                       onCancelReply={() => setReplyTarget(null)}
                       onResolveConversation={handleResolveConversation}
+                      onReopenConversation={handleReopenConversation}
                       onAssignAgent={handleAssignAgent}
                       onToggleBlockContact={toggleContactBlocked}
                       aiMode={activeConvData?.ai_mode}
