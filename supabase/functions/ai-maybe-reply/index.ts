@@ -56,6 +56,164 @@ function resolveAgentFromText(text: string | null | undefined, agents: Array<{ i
   return null;
 }
 
+function getLocalDateParts(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value]),
+  );
+
+  return {
+    weekday: (parts.weekday || '').toLowerCase(),
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour || '0'),
+    minute: Number(parts.minute || '0'),
+  };
+}
+
+function timeToMinutes(value: string | null | undefined) {
+  const [hours, minutes] = (value || '00:00').split(':').map((item) => Number(item || '0'));
+  return (hours * 60) + minutes;
+}
+
+function formatNextBusinessDate(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone,
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(date);
+}
+
+function buildNextBusinessSlot(scheduleJson: any, timeZone: string, now: Date) {
+  for (let offset = 0; offset < 14; offset++) {
+    const candidate = new Date(now.getTime() + offset * 24 * 60 * 60 * 1000);
+    const local = getLocalDateParts(candidate, timeZone);
+    const exception = (scheduleJson?.exceptions || []).find((item: any) => item?.date === local.date);
+    const baseDay = scheduleJson?.days?.[local.weekday];
+
+    if (exception) {
+      if (!exception.enabled) continue;
+      return {
+        date: candidate,
+        time: exception.start || baseDay?.start || '08:00',
+      };
+    }
+
+    if (!baseDay?.enabled) continue;
+    return {
+      date: candidate,
+      time: baseDay.start || '08:00',
+    };
+  }
+
+  return null;
+}
+
+function evaluateBusinessHours(scheduleJson: any, timeZone: string, now: Date) {
+  const local = getLocalDateParts(now, timeZone);
+  const currentMinutes = (local.hour * 60) + local.minute;
+  const baseDay = scheduleJson?.days?.[local.weekday];
+  const exception = (scheduleJson?.exceptions || []).find((item: any) => item?.date === local.date);
+
+  if (exception) {
+    if (!exception.enabled) {
+      return {
+        open: false,
+        reason: 'holiday',
+        holidayName: exception.name || '',
+        message: exception.message || '',
+        nextSlot: buildNextBusinessSlot(scheduleJson, timeZone, new Date(now.getTime() + 24 * 60 * 60 * 1000)),
+      };
+    }
+
+    const startMinutes = timeToMinutes(exception.start || baseDay?.start || '08:00');
+    const endMinutes = timeToMinutes(exception.end || baseDay?.end || '18:00');
+
+    if (currentMinutes < startMinutes) {
+      return {
+        open: false,
+        reason: 'before_hours',
+        holidayName: exception.name || '',
+        message: exception.message || '',
+        nextSlot: buildNextBusinessSlot(scheduleJson, timeZone, now),
+      };
+    }
+
+    if (currentMinutes >= endMinutes) {
+      return {
+        open: false,
+        reason: 'after_hours',
+        holidayName: exception.name || '',
+        message: exception.message || '',
+        nextSlot: buildNextBusinessSlot(scheduleJson, timeZone, new Date(now.getTime() + 24 * 60 * 60 * 1000)),
+      };
+    }
+
+    return { open: true, reason: 'open', holidayName: exception.name || '', message: '', nextSlot: null };
+  }
+
+  if (!baseDay?.enabled) {
+    return {
+      open: false,
+      reason: 'closed_day',
+      holidayName: '',
+      message: '',
+      nextSlot: buildNextBusinessSlot(scheduleJson, timeZone, new Date(now.getTime() + 24 * 60 * 60 * 1000)),
+    };
+  }
+
+  const startMinutes = timeToMinutes(baseDay.start);
+  const endMinutes = timeToMinutes(baseDay.end);
+
+  if (currentMinutes < startMinutes) {
+    return {
+      open: false,
+      reason: 'before_hours',
+      holidayName: '',
+      message: '',
+      nextSlot: buildNextBusinessSlot(scheduleJson, timeZone, now),
+    };
+  }
+
+  if (currentMinutes >= endMinutes) {
+    return {
+      open: false,
+      reason: 'after_hours',
+      holidayName: '',
+      message: '',
+      nextSlot: buildNextBusinessSlot(scheduleJson, timeZone, new Date(now.getTime() + 24 * 60 * 60 * 1000)),
+    };
+  }
+
+  return { open: true, reason: 'open', holidayName: '', message: '', nextSlot: null };
+}
+
+function renderOffhoursMessage(
+  template: string,
+  timeZone: string,
+  nextSlot: { date: Date; time: string } | null,
+  holidayName: string,
+) {
+  const nextBusinessDate = nextSlot ? formatNextBusinessDate(nextSlot.date, timeZone) : 'no próximo dia útil';
+  const nextBusinessTime = nextSlot?.time || '08:00';
+
+  return (template || 'Recebemos sua mensagem e retornaremos no próximo horário útil.')
+    .replaceAll('{{next_business_date}}', nextBusinessDate)
+    .replaceAll('{{next_business_time}}', nextBusinessTime)
+    .replaceAll('{{holiday_name}}', holidayName || 'feriado')
+    .trim();
+}
+
 serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -168,6 +326,55 @@ serve(async (req) => {
         .eq('id', conversation_id);
     }
 
+    const { data: workspaceSettings } = await supabase
+      .from('ai_settings')
+      .select('agent_display_name, fallback_offhours_message, timezone, schedule_json, policies_json')
+      .eq('workspace_id', conv.workspace_id)
+      .limit(1)
+      .maybeSingle();
+
+    const businessHours = evaluateBusinessHours(
+      workspaceSettings?.schedule_json || { days: {}, exceptions: [] },
+      workspaceSettings?.timezone || 'America/Fortaleza',
+      new Date(),
+    );
+
+    if (!businessHours.open) {
+      const fallbackMessage = renderOffhoursMessage(
+        businessHours.message || workspaceSettings?.fallback_offhours_message || '',
+        workspaceSettings?.timezone || 'America/Fortaleza',
+        businessHours.nextSlot,
+        businessHours.holidayName,
+      );
+
+      await fetch(`${supabaseUrl}/functions/v1/zapi-send-message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+        },
+        body: JSON.stringify({
+          conversation_id,
+          content: fallbackMessage,
+          message_type: 'text',
+          sender_name: workspaceSettings?.agent_display_name?.trim() || 'Ana Mônica',
+        }),
+      });
+
+      await supabase.from('ai_logs').insert({
+        provider: 'system',
+        model: 'schedule-fallback',
+        conversation_id,
+        status: 'success',
+        output_text: fallbackMessage,
+        error_message: `Fallback automático por ${businessHours.reason}`,
+      });
+
+      return new Response(JSON.stringify({ success: true, reason: businessHours.reason }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // 3. Checar papel do participante (Fornecedor)
     const { data: participantState } = await supabase
       .from('conversation_participant_state')
@@ -243,13 +450,6 @@ serve(async (req) => {
       .from('contact_memory')
       .select('contact_name, company_name, role_title, notes')
       .eq('contact_id', conv.contact_id)
-      .maybeSingle();
-
-    const { data: workspaceSettings } = await supabase
-      .from('ai_settings')
-      .select('agent_display_name, policies_json')
-      .eq('workspace_id', conv.workspace_id)
-      .limit(1)
       .maybeSingle();
 
     const { data: workspaceMembersRaw } = await supabase

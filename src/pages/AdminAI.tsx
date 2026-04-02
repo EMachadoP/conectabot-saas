@@ -65,6 +65,9 @@ interface DaySchedule {
 interface ScheduleException {
   date: string;
   enabled: boolean;
+  name?: string;
+  start?: string;
+  end?: string;
   message?: string;
 }
 
@@ -145,6 +148,41 @@ const DAYS_OF_WEEK = [
   { key: 'saturday', label: 'Sábado' },
   { key: 'sunday', label: 'Domingo' },
 ];
+
+function createDefaultSchedule(): ScheduleJson {
+  return {
+    days: {
+      monday: { enabled: true, start: '08:00', end: '18:00' },
+      tuesday: { enabled: true, start: '08:00', end: '18:00' },
+      wednesday: { enabled: true, start: '08:00', end: '18:00' },
+      thursday: { enabled: true, start: '08:00', end: '18:00' },
+      friday: { enabled: true, start: '08:00', end: '18:00' },
+      saturday: { enabled: true, start: '08:00', end: '12:00' },
+      sunday: { enabled: false, start: '08:00', end: '12:00' },
+    },
+    exceptions: [],
+  };
+}
+
+function normalizeScheduleJson(scheduleJson?: ScheduleJson | null): ScheduleJson {
+  const base = createDefaultSchedule();
+  const input = scheduleJson || base;
+
+  return {
+    days: {
+      ...base.days,
+      ...(input.days || {}),
+    },
+    exceptions: (input.exceptions || []).map((exception) => ({
+      date: exception.date,
+      enabled: exception.enabled,
+      name: exception.name || '',
+      start: exception.start || '',
+      end: exception.end || '',
+      message: exception.message || '',
+    })),
+  };
+}
 
 const AVAILABLE_MODELS = {
   openai: [
@@ -341,23 +379,11 @@ export default function AdminAIPage() {
       if (settingsData) {
         // Cast schedule_json properly
         const scheduleJson = settingsData.schedule_json as unknown as ScheduleJson | null;
-        const defaultSchedule: ScheduleJson = {
-          days: {
-            monday: { enabled: true, start: '08:00', end: '18:00' },
-            tuesday: { enabled: true, start: '08:00', end: '18:00' },
-            wednesday: { enabled: true, start: '08:00', end: '18:00' },
-            thursday: { enabled: true, start: '08:00', end: '18:00' },
-            friday: { enabled: true, start: '08:00', end: '18:00' },
-            saturday: { enabled: true, start: '08:00', end: '12:00' },
-            sunday: { enabled: false, start: '08:00', end: '12:00' },
-          },
-          exceptions: [],
-        };
         
         setSettings({
           ...settingsData,
           policies_json: settingsData.policies_json as Record<string, unknown> ?? {},
-          schedule_json: scheduleJson ?? defaultSchedule,
+          schedule_json: normalizeScheduleJson(scheduleJson),
         } as AISettings);
       } else if (activeTenant?.id) {
         setSettings({
@@ -371,25 +397,14 @@ export default function AdminAIPage() {
           system_prompt: DEFAULT_PROMPT,
           model_name: null,
           temperature: 0.7,
-          fallback_offhours_message: 'Recebemos sua mensagem e retornaremos no próximo horário útil.',
+          fallback_offhours_message: 'Recebemos sua mensagem fora do horário de atendimento. Registramos sua solicitação e retornaremos em {{next_business_date}} a partir de {{next_business_time}}.',
           policies_json: {},
           memory_message_count: 12,
           enable_auto_summary: false,
           anti_spam_seconds: 5,
           max_messages_per_hour: 6,
           human_request_pause_hours: 2,
-          schedule_json: {
-            days: {
-              monday: { enabled: true, start: '08:00', end: '18:00' },
-              tuesday: { enabled: true, start: '08:00', end: '18:00' },
-              wednesday: { enabled: true, start: '08:00', end: '18:00' },
-              thursday: { enabled: true, start: '08:00', end: '18:00' },
-              friday: { enabled: true, start: '08:00', end: '18:00' },
-              saturday: { enabled: true, start: '08:00', end: '12:00' },
-              sunday: { enabled: false, start: '08:00', end: '12:00' },
-            },
-            exceptions: [],
-          },
+          schedule_json: createDefaultSchedule(),
         });
       }
 
@@ -891,6 +906,9 @@ export default function AdminAIPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Configurações Globais de Horário</CardTitle>
+                  <CardDescription>
+                    Defina quando a IA pode responder normalmente e qual mensagem enviar em feriados ou fora do expediente.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -941,6 +959,19 @@ export default function AdminAIPage() {
                       min={1}
                       className="w-32"
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Mensagem fora do expediente / feriado</Label>
+                    <Textarea
+                      value={settings?.fallback_offhours_message || ''}
+                      onChange={(e) => settings && setSettings({ ...settings, fallback_offhours_message: e.target.value })}
+                      className="min-h-[90px]"
+                      placeholder="Ex.: Recebemos sua mensagem fora do horário de atendimento..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Variáveis suportadas: {'{{next_business_date}}'}, {'{{next_business_time}}'}, {'{{holiday_name}}'}.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -1001,8 +1032,183 @@ export default function AdminAIPage() {
                     })}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Fora do horário, a IA envia a mensagem de fallback configurada no prompt.
+                    Fora do horário, a IA envia automaticamente a mensagem configurada acima e retoma o atendimento no próximo horário útil.
                   </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <CardTitle>Feriados e Exceções</CardTitle>
+                      <CardDescription>
+                        Use para fechar um dia inteiro, cadastrar feriados ou liberar um horário especial em datas específicas.
+                      </CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (!settings) return;
+                        setSettings({
+                          ...settings,
+                          schedule_json: {
+                            ...settings.schedule_json,
+                            exceptions: [
+                              ...(settings.schedule_json.exceptions || []),
+                              {
+                                date: '',
+                                enabled: false,
+                                name: '',
+                                start: '',
+                                end: '',
+                                message: '',
+                              },
+                            ],
+                          },
+                        });
+                      }}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Adicionar exceção
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {(settings?.schedule_json?.exceptions || []).length === 0 && (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      Nenhum feriado ou exceção cadastrado.
+                    </div>
+                  )}
+
+                  {(settings?.schedule_json?.exceptions || []).map((exception, index) => (
+                    <div key={`${exception.date}-${index}`} className="rounded-lg border p-4 space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
+                          <div className="space-y-2">
+                            <Label>Data</Label>
+                            <Input
+                              type="date"
+                              value={exception.date}
+                              onChange={(e) => {
+                                if (!settings) return;
+                                const exceptions = [...settings.schedule_json.exceptions];
+                                exceptions[index] = { ...exceptions[index], date: e.target.value };
+                                setSettings({
+                                  ...settings,
+                                  schedule_json: { ...settings.schedule_json, exceptions },
+                                });
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Descrição</Label>
+                            <Input
+                              value={exception.name || ''}
+                              onChange={(e) => {
+                                if (!settings) return;
+                                const exceptions = [...settings.schedule_json.exceptions];
+                                exceptions[index] = { ...exceptions[index], name: e.target.value };
+                                setSettings({
+                                  ...settings,
+                                  schedule_json: { ...settings.schedule_json, exceptions },
+                                });
+                              }}
+                              placeholder="Ex.: Sexta-feira Santa"
+                            />
+                          </div>
+                        </div>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (!settings) return;
+                            const exceptions = settings.schedule_json.exceptions.filter((_, itemIndex) => itemIndex !== index);
+                            setSettings({
+                              ...settings,
+                              schedule_json: { ...settings.schedule_json, exceptions },
+                            });
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <Switch
+                          checked={exception.enabled}
+                          onCheckedChange={(checked) => {
+                            if (!settings) return;
+                            const exceptions = [...settings.schedule_json.exceptions];
+                            exceptions[index] = {
+                              ...exceptions[index],
+                              enabled: checked,
+                              start: checked ? (exceptions[index].start || '08:00') : '',
+                              end: checked ? (exceptions[index].end || '18:00') : '',
+                            };
+                            setSettings({
+                              ...settings,
+                              schedule_json: { ...settings.schedule_json, exceptions },
+                            });
+                          }}
+                        />
+                        <Label>{exception.enabled ? 'Atendimento liberado nesta data' : 'Dia fechado / feriado'}</Label>
+                      </div>
+
+                      {exception.enabled && (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            value={exception.start || '08:00'}
+                            onChange={(e) => {
+                              if (!settings) return;
+                              const exceptions = [...settings.schedule_json.exceptions];
+                              exceptions[index] = { ...exceptions[index], start: e.target.value };
+                              setSettings({
+                                ...settings,
+                                schedule_json: { ...settings.schedule_json, exceptions },
+                              });
+                            }}
+                            className="w-32"
+                          />
+                          <span className="text-muted-foreground">até</span>
+                          <Input
+                            type="time"
+                            value={exception.end || '18:00'}
+                            onChange={(e) => {
+                              if (!settings) return;
+                              const exceptions = [...settings.schedule_json.exceptions];
+                              exceptions[index] = { ...exceptions[index], end: e.target.value };
+                              setSettings({
+                                ...settings,
+                                schedule_json: { ...settings.schedule_json, exceptions },
+                              });
+                            }}
+                            className="w-32"
+                          />
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label>Mensagem opcional dessa data</Label>
+                        <Textarea
+                          value={exception.message || ''}
+                          onChange={(e) => {
+                            if (!settings) return;
+                            const exceptions = [...settings.schedule_json.exceptions];
+                            exceptions[index] = { ...exceptions[index], message: e.target.value };
+                            setSettings({
+                              ...settings,
+                              schedule_json: { ...settings.schedule_json, exceptions },
+                            });
+                          }}
+                          className="min-h-[80px]"
+                          placeholder="Ex.: Hoje estamos em feriado. Retornaremos no próximo dia útil."
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
 
@@ -1720,18 +1926,7 @@ function TeamSettingsForm({
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [promptOverride, setPromptOverride] = useState(existing?.prompt_override || '');
   const [schedule, setSchedule] = useState<ScheduleJson>(
-    existing?.schedule_json || {
-      days: {
-        monday: { enabled: true, start: '08:00', end: '18:00' },
-        tuesday: { enabled: true, start: '08:00', end: '18:00' },
-        wednesday: { enabled: true, start: '08:00', end: '18:00' },
-        thursday: { enabled: true, start: '08:00', end: '18:00' },
-        friday: { enabled: true, start: '08:00', end: '18:00' },
-        saturday: { enabled: true, start: '08:00', end: '12:00' },
-        sunday: { enabled: false, start: '08:00', end: '12:00' },
-      },
-      exceptions: [],
-    }
+    normalizeScheduleJson(existing?.schedule_json)
   );
 
   return (
