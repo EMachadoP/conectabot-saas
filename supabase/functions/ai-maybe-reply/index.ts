@@ -639,7 +639,40 @@ serve(async (req) => {
     });
 
     if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
+      const errorBody = await aiResponse.json().catch(() => ({}));
+
+      if (aiResponse.status === 402 && errorBody?.reason === 'plan_limit_reached') {
+        const billingFallback = 'No momento nosso assistente virtual está temporariamente indisponível. Em breve um de nossos atendentes dará continuidade ao seu atendimento.';
+
+        await fetch(`${supabaseUrl}/functions/v1/zapi-send-message`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            conversation_id,
+            content: billingFallback,
+            message_type: 'text',
+            sender_name: workspaceSettings?.agent_display_name?.trim() || 'Ana Mônica',
+          }),
+        });
+
+        await supabase.from('ai_logs').insert({
+          provider: 'system',
+          model: 'billing-fallback',
+          conversation_id,
+          status: 'success',
+          output_text: billingFallback,
+          error_message: `Limite de tokens atingido (${errorBody?.usage ?? '?'}/${errorBody?.limit ?? '?'})`,
+        });
+
+        return new Response(JSON.stringify({ success: true, reason: 'plan_limit_reached' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const errorText = JSON.stringify(errorBody) || 'unknown error';
       await supabase.from('ai_logs').insert({
         provider: 'system',
         model: 'ai-maybe-reply',
