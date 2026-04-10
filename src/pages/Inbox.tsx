@@ -315,8 +315,8 @@ export default function InboxPage() {
 
   const handleMarkUnread = useCallback(async () => {
     if (!activeConversationId) return;
+    await supabase.from('conversations').update({ marked_unread: true }).eq('id', activeConversationId);
     markConversationAsUnread(activeConversationId);
-    void supabase.from('conversations').update({ marked_unread: true }).eq('id', activeConversationId);
     setActiveConversationId(null);
     navigate('/inbox');
   }, [activeConversationId, markConversationAsUnread, navigate]);
