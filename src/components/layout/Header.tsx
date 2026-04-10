@@ -13,6 +13,7 @@ import { EditProfileModal } from '@/components/profile/EditProfileModal';
 import { PRODUCT } from '@/config/product';
 import { useTenant } from '@/contexts/TenantContext';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
+import { usePendingTaskCount } from '@/hooks/usePendingTaskCount';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +51,7 @@ export function Header() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showQuickTaskModal, setShowQuickTaskModal] = useState(false);
   const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(null);
+  const pendingTasks = usePendingTaskCount();
 
   const usageRatio = billingOverview?.maxUsageRatio ?? 0;
   const usageBadgeTone = usageRatio >= 1 ? 'destructive' : usageRatio >= 0.8 ? 'secondary' : 'outline';
@@ -89,18 +91,30 @@ export function Header() {
               const Icon = item.icon;
               const isActive = location.pathname.startsWith(item.path);
 
+              const isTasksItem = item.path === '/tasks';
+              const taskBadgeCount = isTasksItem ? pendingTasks.total : 0;
+              const taskBadgeOverdue = isTasksItem && pendingTasks.overdue > 0;
+
               return (
                 <Link key={item.path} to={item.path}>
                   <Button
                     variant="ghost"
                     size="sm"
                     className={cn(
-                      'gap-2',
+                      'gap-2 relative',
                       isActive && 'bg-muted text-foreground'
                     )}
                   >
                     <Icon className="w-4 h-4" />
                     {item.label}
+                    {taskBadgeCount > 0 && (
+                      <span className={cn(
+                        'ml-1 inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none text-white',
+                        taskBadgeOverdue ? 'bg-destructive' : 'bg-primary'
+                      )}>
+                        {taskBadgeCount > 99 ? '99+' : taskBadgeCount}
+                      </span>
+                    )}
                   </Button>
                 </Link>
               );

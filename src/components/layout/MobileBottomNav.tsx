@@ -2,6 +2,7 @@ import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Tick
 import { Link, useLocation } from 'react-router-dom';
 import { usePlatformAdmin } from '@/hooks/usePlatformAdmin';
 import { useUserRole } from '@/hooks/useUserRole';
+import { usePendingTaskCount } from '@/hooks/usePendingTaskCount';
 import { cn } from '@/lib/utils';
 import { PRODUCT } from '@/config/product';
 import {
@@ -32,6 +33,7 @@ export function MobileBottomNav() {
   const location = useLocation();
   const { isAdmin, loading: roleLoading } = useUserRole();
   const { isPlatformAdmin } = usePlatformAdmin();
+  const pendingTasks = usePendingTaskCount();
 
   const isActive = (path: string) => {
     if (path === '/inbox') {
@@ -49,13 +51,27 @@ export function MobileBottomNav() {
             const Icon = item.icon;
             const active = isActive(item.path);
 
+            const isTasksItem = item.path === '/tasks';
+            const taskBadgeCount = isTasksItem ? pendingTasks.total : 0;
+            const taskBadgeOverdue = isTasksItem && pendingTasks.overdue > 0;
+
             return (
               <Link
                 key={item.path}
                 to={item.path}
-                className={cn('bottom-nav-item flex-1', active && 'active')}
+                className={cn('bottom-nav-item flex-1 relative', active && 'active')}
               >
-                <Icon className="w-5 h-5" />
+                <div className="relative inline-flex">
+                  <Icon className="w-5 h-5" />
+                  {taskBadgeCount > 0 && (
+                    <span className={cn(
+                      'absolute -top-1.5 -right-2 inline-flex items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none text-white min-w-[16px] h-4',
+                      taskBadgeOverdue ? 'bg-destructive' : 'bg-primary'
+                    )}>
+                      {taskBadgeCount > 99 ? '99+' : taskBadgeCount}
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs mt-1">{item.label}</span>
               </Link>
             );

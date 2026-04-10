@@ -76,9 +76,21 @@ export function ConversationList({
 
     const activeStillVisible = filteredConversations.some((conversation) => conversation.id === activeConversationId);
     if (!activeStillVisible) {
-      onClearSelection?.();
+      const activeConv = conversations.find((c) => c.id === activeConversationId);
+      if (activeConv) {
+        // Conversa mudou de aba (ex: reaberta) — troca a aba em vez de fechar
+        if (activeConv.status === 'resolved') {
+          setActiveTab('resolved');
+        } else if (activeConv.assigned_to === userId) {
+          setActiveTab('mine');
+        } else {
+          setActiveTab('inbox');
+        }
+      } else {
+        onClearSelection?.();
+      }
     }
-  }, [activeConversationId, filteredConversations, onClearSelection]);
+  }, [activeConversationId, filteredConversations, conversations, onClearSelection, userId]);
 
   return (
     <div className={`w-full border-r border-border flex flex-col bg-card h-full overflow-hidden`}>
