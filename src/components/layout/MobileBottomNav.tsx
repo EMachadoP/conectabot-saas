@@ -1,14 +1,16 @@
-import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Ticket, Users, Share2, Link2, CreditCard, ListTodo } from 'lucide-react';
+import { MessageSquare, BarChart3, Settings, Bot, MoreHorizontal, Calendar, Ticket, Users, Share2, Link2, CreditCard, ListTodo, Sun, Moon, Circle } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { usePlatformAdmin } from '@/hooks/usePlatformAdmin';
 import { useUserRole } from '@/hooks/useUserRole';
 import { usePendingTaskCount } from '@/hooks/usePendingTaskCount';
+import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/lib/utils';
 import { PRODUCT } from '@/config/product';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
@@ -34,6 +36,13 @@ export function MobileBottomNav() {
   const { isAdmin, loading: roleLoading } = useUserRole();
   const { isPlatformAdmin } = usePlatformAdmin();
   const pendingTasks = usePendingTaskCount();
+  const { theme, setTheme } = useTheme();
+
+  const themeOptions: { value: 'light' | 'dark' | 'black'; label: string; icon: typeof Sun }[] = [
+    { value: 'light', label: 'Claro', icon: Sun },
+    { value: 'dark', label: 'Escuro', icon: Moon },
+    { value: 'black', label: 'Black', icon: Circle },
+  ];
 
   const isActive = (path: string) => {
     if (path === '/inbox') {
@@ -110,18 +119,74 @@ export function MobileBottomNav() {
                   Status
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <div className="px-2 py-1.5">
+                <p className="text-xs text-muted-foreground mb-1.5">Visualização</p>
+                <div className="flex gap-1">
+                  {themeOptions.map(({ value, label, icon: Icon }) => (
+                    <button
+                      key={value}
+                      onClick={() => setTheme(value)}
+                      className={cn(
+                        'flex-1 flex flex-col items-center gap-0.5 rounded p-1.5 text-xs transition-colors',
+                        theme === value
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
 
         {(roleLoading || !isAdmin) && (
-          <Link
-            to="/status"
-            className={cn('bottom-nav-item flex-1', isActive('/status') && 'active')}
-          >
-            <Settings className="w-5 h-5" />
-            <span className="text-xs mt-1">Status</span>
-          </Link>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  'bottom-nav-item flex-1',
+                  isActive('/status') && 'active'
+                )}
+              >
+                <Settings className="w-5 h-5" />
+                <span className="text-xs mt-1">Config</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48 mb-2">
+              <DropdownMenuItem asChild>
+                <Link to="/status" className="flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
+                  Status
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <div className="px-2 py-1.5">
+                <p className="text-xs text-muted-foreground mb-1.5">Visualização</p>
+                <div className="flex gap-1">
+                  {themeOptions.map(({ value, label, icon: Icon }) => (
+                    <button
+                      key={value}
+                      onClick={() => setTheme(value)}
+                      className={cn(
+                        'flex-1 flex flex-col items-center gap-0.5 rounded p-1.5 text-xs transition-colors',
+                        theme === value
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
     </nav>

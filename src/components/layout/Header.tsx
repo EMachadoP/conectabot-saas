@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown, ListTodo } from 'lucide-react';
+import { MessageSquare, BarChart3, LogOut, Bot, Contact, Link2, User, Share2, Calendar, Ticket, Users, CreditCard, Building2, ChevronsUpDown, ListTodo, Sun, Moon, Circle } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
@@ -14,6 +14,7 @@ import { PRODUCT } from '@/config/product';
 import { useTenant } from '@/contexts/TenantContext';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { usePendingTaskCount } from '@/hooks/usePendingTaskCount';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +53,7 @@ export function Header() {
   const [showQuickTaskModal, setShowQuickTaskModal] = useState(false);
   const [switchingTenantId, setSwitchingTenantId] = useState<string | null>(null);
   const pendingTasks = usePendingTaskCount();
+  const { theme, setTheme } = useTheme();
 
   const usageRatio = billingOverview?.maxUsageRatio ?? 0;
   const usageBadgeTone = usageRatio >= 1 ? 'destructive' : usageRatio >= 0.8 ? 'secondary' : 'outline';
@@ -162,6 +164,36 @@ export function Header() {
               </Badge>
             </Link>
           )}
+          <div className="flex items-center rounded-md border border-border p-0.5 gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('h-7 w-7', theme === 'light' && 'bg-muted text-foreground')}
+              onClick={() => setTheme('light')}
+              title="Tema claro"
+            >
+              <Sun className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('h-7 w-7', theme === 'dark' && 'bg-muted text-foreground')}
+              onClick={() => setTheme('dark')}
+              title="Tema escuro"
+            >
+              <Moon className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('h-7 w-7', theme === 'black' && 'bg-muted text-foreground')}
+              onClick={() => setTheme('black')}
+              title="Tema black"
+            >
+              <Circle className="w-3.5 h-3.5 fill-current" />
+            </Button>
+          </div>
+
           <Button
             variant="ghost"
             size="sm"

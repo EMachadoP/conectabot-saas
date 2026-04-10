@@ -29,6 +29,7 @@ import BillingSettings from "./pages/BillingSettings";
 import SuperAdminClients from "./pages/SuperAdminClients";
 import NotFound from "./pages/NotFound";
 import { useAppVersionRefresh } from "@/hooks/useAppVersionRefresh";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ const AppShell = () => {
   useAppVersionRefresh();
 
   return (
+    <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TenantProvider>
@@ -71,6 +73,7 @@ const AppShell = () => {
         </TenantProvider>
       </AuthProvider>
     </QueryClientProvider>
+    </ThemeProvider>
   );
 };
 

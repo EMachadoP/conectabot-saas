@@ -77,6 +77,50 @@
     --safe-area-inset-right: env(safe-area-inset-right, 0px);
   }
 
+  .black {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 95%;
+
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 11%;
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 55%;
+
+    --accent: 142 76% 36%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 31%;
+    --destructive-foreground: 0 0% 95%;
+
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 217 91% 60%;
+
+    --sidebar-background: 0 0% 0%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 11%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 0 0% 11%;
+    --sidebar-ring: 217 91% 60%;
+
+    --chat-bubble-outgoing: 217 91% 60%;
+    --chat-bubble-outgoing-foreground: 0 0% 100%;
+    --chat-bubble-incoming: 0 0% 11%;
+    --chat-bubble-incoming-foreground: 0 0% 95%;
+  }
+
   .dark {
     --background: 222 47% 11%;
     --foreground: 210 40% 98%;
