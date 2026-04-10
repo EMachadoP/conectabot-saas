@@ -8,6 +8,7 @@ export interface Conversation {
   last_message_type: string;
   last_message_at: string | null;
   unread_count: number;
+  marked_unread: boolean;
   assigned_to: string | null;
   status: string;
   priority: string | null;
@@ -42,7 +43,17 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
     setConversations((current) =>
       current.map((conversation) =>
         conversation.id === conversationId
-          ? { ...conversation, unread_count: 0 }
+          ? { ...conversation, unread_count: 0, marked_unread: false }
+          : conversation
+      )
+    );
+  }, []);
+
+  const markConversationAsUnread = useCallback((conversationId: string) => {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, marked_unread: true }
           : conversation
       )
     );
@@ -93,6 +104,7 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
             last_message_type: latestMessage?.message_type || conv.last_message_type || 'text',
             last_message_at: latestMessage?.sent_at || conv.last_message_at,
             unread_count: conv.unread_count,
+            marked_unread: conv.marked_unread ?? false,
             assigned_to: conv.assigned_to,
             status: conv.status,
             priority: conv.priority,
@@ -200,5 +212,6 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
     loading,
     refetch: fetchConversations,
     markConversationAsRead,
+    markConversationAsUnread,
   };
 }

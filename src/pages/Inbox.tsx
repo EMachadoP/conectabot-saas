@@ -28,7 +28,7 @@ export default function InboxPage() {
   const [agents, setAgents] = useState<{ id: string; name: string; email?: string | null }[]>([]);
   const [replyTarget, setReplyTarget] = useState<any | null>(null);
 
-  const { conversations, markConversationAsRead } = useRealtimeInbox({
+  const { conversations, markConversationAsRead, markConversationAsUnread } = useRealtimeInbox({
     onNewInboundMessage: playNotificationSound,
     userId: user?.id,
   });
@@ -78,9 +78,9 @@ export default function InboxPage() {
       setActiveConvData(data);
       setActiveContact(data.contacts);
 
-      if (data.unread_count > 0 && shouldMarkConversationAsRead(data)) {
+      if (shouldMarkConversationAsRead(data)) {
         markConversationAsRead(id);
-        await supabase.from('conversations').update({ unread_count: 0 }).eq('id', id);
+        await supabase.from('conversations').update({ unread_count: 0, marked_unread: false }).eq('id', id);
       }
     }
   }, [markConversationAsRead, shouldMarkConversationAsRead]);
@@ -175,7 +175,7 @@ export default function InboxPage() {
       markConversationAsRead(id);
       void supabase
         .from('conversations')
-        .update({ unread_count: 0 })
+        .update({ unread_count: 0, marked_unread: false })
         .eq('id', id);
     }
     navigate(`/inbox/${id}`);
@@ -313,6 +313,14 @@ export default function InboxPage() {
     }
   }, [activeConversationId, fileToDataUrl, navigate, toast, user]);
 
+  const handleMarkUnread = useCallback(async () => {
+    if (!activeConversationId) return;
+    markConversationAsUnread(activeConversationId);
+    void supabase.from('conversations').update({ marked_unread: true }).eq('id', activeConversationId);
+    setActiveConversationId(null);
+    navigate('/inbox');
+  }, [activeConversationId, markConversationAsUnread, navigate]);
+
   const handleResolveConversation = async () => {
     if (!activeConversationId) return;
 
@@ -419,6 +427,7 @@ export default function InboxPage() {
                   onCancelReply={() => setReplyTarget(null)}
                   onResolveConversation={handleResolveConversation}
                   onReopenConversation={handleReopenConversation}
+                  onMarkUnread={handleMarkUnread}
                   onAssignAgent={handleAssignAgent}
                   onToggleBlockContact={toggleContactBlocked}
                   aiMode={activeConvData?.ai_mode}
@@ -480,6 +489,7 @@ export default function InboxPage() {
                       onCancelReply={() => setReplyTarget(null)}
                       onResolveConversation={handleResolveConversation}
                       onReopenConversation={handleReopenConversation}
+                      onMarkUnread={handleMarkUnread}
                       onAssignAgent={handleAssignAgent}
                       onToggleBlockContact={toggleContactBlocked}
                       aiMode={activeConvData?.ai_mode}

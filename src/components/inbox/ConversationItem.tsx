@@ -13,6 +13,7 @@ interface ConversationItemProps {
   lastMessageType?: string;
   lastMessageAt?: string | null;
   unreadCount: number;
+  markedUnread?: boolean;
   isActive: boolean;
   onClick: () => void;
 }
@@ -43,6 +44,7 @@ export function ConversationItem({
   lastMessageType,
   lastMessageAt,
   unreadCount,
+  markedUnread = false,
   isActive,
   onClick,
 }: ConversationItemProps) {
@@ -76,14 +78,14 @@ export function ConversationItem({
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <span className={cn(
             "text-sm truncate",
-            unreadCount > 0 ? "text-foreground font-medium" : "text-muted-foreground"
+            (unreadCount > 0 || markedUnread) ? "text-foreground font-medium" : "text-muted-foreground"
           )}>
             {getMessagePreview(lastMessage, lastMessageType)}
           </span>
-          
-          {unreadCount > 0 && (
+
+          {(unreadCount > 0 || markedUnread) && (
             <Badge className="bg-primary text-primary-foreground h-5 min-w-5 flex items-center justify-center px-1.5">
-              {unreadCount}
+              {unreadCount > 0 ? unreadCount : '●'}
             </Badge>
           )}
         </div>

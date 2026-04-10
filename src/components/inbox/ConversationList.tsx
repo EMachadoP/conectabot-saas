@@ -14,6 +14,7 @@ interface Conversation {
   last_message_type?: string;
   last_message_at?: string | null;
   unread_count: number;
+  marked_unread?: boolean;
   assigned_to?: string | null;
   status: string;
 }
@@ -117,6 +118,7 @@ export function ConversationList({
               lastMessageType={conv.last_message_type}
               lastMessageAt={conv.last_message_at}
               unreadCount={conv.unread_count}
+              markedUnread={conv.marked_unread}
               isActive={conv.id === activeConversationId}
               onClick={() => onSelectConversation(conv.id)}
             />
