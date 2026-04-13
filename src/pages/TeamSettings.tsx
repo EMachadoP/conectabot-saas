@@ -93,6 +93,7 @@ export default function TeamSettingsPage() {
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [resendingAccessMemberId, setResendingAccessMemberId] = useState<string | null>(null);
   const [restoringAccessMemberId, setRestoringAccessMemberId] = useState<string | null>(null);
+  const [syncingClaimsMemberId, setSyncingClaimsMemberId] = useState<string | null>(null);
 
   const canInviteAdmins = currentRole === 'owner' || currentRole === 'admin';
 
@@ -474,6 +475,33 @@ export default function TeamSettingsPage() {
     loadMembers();
   };
 
+  const handleSyncClaims = async (member: TeamMember) => {
+    if (!activeTenant?.id || !member.user_id) return;
+
+    setSyncingClaimsMemberId(member.user_id);
+    const { error } = await supabase.functions.invoke('sync-member-claims', {
+      body: {
+        workspace_id: activeTenant.id,
+        target_user_id: member.user_id,
+      },
+    });
+    setSyncingClaimsMemberId(null);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao sincronizar acesso',
+        description: error.message,
+      });
+      return;
+    }
+
+    toast({
+      title: 'Acesso sincronizado',
+      description: `As permissões de ${member.profile?.email ?? 'o membro'} foram atualizadas. Peça para ele fazer logout e login novamente.`,
+    });
+  };
+
   const handleRemoveMember = async (member: TeamMember) => {
     if (!activeTenant?.id || !member.user_id) return;
 
@@ -800,6 +828,18 @@ export default function TeamSettingsPage() {
                         <KeyRound className="w-4 h-4 mr-2" />
                         Senha
                       </Button>
+
+                      {!isSelf && member.user_id && member.status !== 'pending' && (
+                        <Button
+                          variant="outline"
+                          onClick={() => handleSyncClaims(member)}
+                          disabled={syncingClaimsMemberId === member.user_id}
+                          title="Força resincronização das permissões JWT deste membro"
+                        >
+                          <RefreshCw className={`w-4 h-4 mr-2 ${syncingClaimsMemberId === member.user_id ? 'animate-spin' : ''}`} />
+                          {syncingClaimsMemberId === member.user_id ? 'Sincronizando...' : 'Sincronizar acesso'}
+                        </Button>
+                      )}
 
                       {member.status === 'inactive' && !isSelf && (
                         <Button
