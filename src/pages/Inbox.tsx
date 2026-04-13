@@ -28,7 +28,7 @@ export default function InboxPage() {
   const [agents, setAgents] = useState<{ id: string; name: string; email?: string | null }[]>([]);
   const [replyTarget, setReplyTarget] = useState<any | null>(null);
 
-  const { conversations, markConversationAsRead, markConversationAsUnread } = useRealtimeInbox({
+  const { conversations, markConversationAsRead, markConversationAsUnread, markConversationAsOpen } = useRealtimeInbox({
     onNewInboundMessage: playNotificationSound,
     userId: user?.id,
   });
@@ -332,6 +332,7 @@ export default function InboxPage() {
 
       if (error) throw error;
 
+      await fetchActiveConversationDetails(activeConversationId);
       console.log('Conversa marcada como resolvida');
     } catch (error: any) {
       console.error('Erro ao resolver conversa:', error);
@@ -354,6 +355,8 @@ export default function InboxPage() {
 
       if (error) throw error;
 
+      // Atualização otimista imediata para trocar de aba sem esperar o realtime
+      markConversationAsOpen(activeConversationId);
       await fetchActiveConversationDetails(activeConversationId);
       toast({
         title: 'Conversa reaberta',

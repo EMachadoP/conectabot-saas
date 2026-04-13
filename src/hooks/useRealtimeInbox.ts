@@ -59,6 +59,16 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
     );
   }, []);
 
+  const markConversationAsOpen = useCallback((conversationId: string) => {
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, status: 'open' }
+          : conversation
+      )
+    );
+  }, []);
+
   const fetchConversations = useCallback(async () => {
     if (fetchInFlightRef.current) return;
     const now = Date.now();
@@ -213,5 +223,6 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
     refetch: fetchConversations,
     markConversationAsRead,
     markConversationAsUnread,
+    markConversationAsOpen,
   };
 }
