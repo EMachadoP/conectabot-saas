@@ -41,7 +41,7 @@ interface ProfileRow {
 
 interface TeamMember extends WorkspaceMemberRow {
   profile: ProfileRow | null;
-  status: 'active' | 'pending';
+  status: 'active' | 'inactive' | 'pending';
 }
 
 const memberRoleLabels: Record<MemberRole, string> = {
@@ -92,6 +92,7 @@ export default function TeamSettingsPage() {
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [resendingAccessMemberId, setResendingAccessMemberId] = useState<string | null>(null);
+  const [restoringAccessMemberId, setRestoringAccessMemberId] = useState<string | null>(null);
 
   const canInviteAdmins = currentRole === 'owner' || currentRole === 'admin';
 
@@ -147,7 +148,9 @@ export default function TeamSettingsPage() {
         ...member,
         workspace_id: member.tenant_id ?? activeTenant.id,
         profile: member.user_id ? profilesById[member.user_id] ?? null : null,
-        status: member.user_id && profilesById[member.user_id] ? 'active' : 'pending',
+        status: member.user_id && profilesById[member.user_id]
+          ? (member.is_active === false ? 'inactive' : 'active')
+          : 'pending',
       })),
     );
     setLoading(false);
@@ -160,8 +163,9 @@ export default function TeamSettingsPage() {
   const stats = useMemo(() => {
     const total = members.length;
     const active = members.filter((member) => member.status === 'active').length;
-    const pending = total - active;
-    return { total, active, pending };
+    const inactive = members.filter((member) => member.status === 'inactive').length;
+    const pending = members.filter((member) => member.status === 'pending').length;
+    return { total, active, inactive, pending };
   }, [members]);
 
   const managerCount = useMemo(
@@ -443,6 +447,33 @@ export default function TeamSettingsPage() {
     loadMembers();
   };
 
+  const handleRestoreAccess = async (member: TeamMember) => {
+    if (!activeTenant?.id || !member.user_id) return;
+
+    setRestoringAccessMemberId(member.user_id);
+    const { error } = await supabase
+      .from('tenant_members')
+      .update({ is_active: true })
+      .eq('tenant_id', activeTenant.id)
+      .eq('user_id', member.user_id);
+    setRestoringAccessMemberId(null);
+
+    if (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Falha ao restaurar acesso',
+        description: error.message,
+      });
+      return;
+    }
+
+    toast({
+      title: 'Acesso restaurado',
+      description: `${member.profile?.email ?? 'O membro'} voltou a ter acesso ao workspace.`,
+    });
+    loadMembers();
+  };
+
   const handleRemoveMember = async (member: TeamMember) => {
     if (!activeTenant?.id || !member.user_id) return;
 
@@ -614,7 +645,7 @@ export default function TeamSettingsPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Total</CardDescription>
@@ -627,6 +658,14 @@ export default function TeamSettingsPage() {
               <CardTitle className="text-3xl">{stats.active}</CardTitle>
             </CardHeader>
           </Card>
+          {stats.inactive > 0 && (
+            <Card className="border-destructive/50">
+              <CardHeader className="pb-2">
+                <CardDescription className="text-destructive">Sem acesso</CardDescription>
+                <CardTitle className="text-3xl text-destructive">{stats.inactive}</CardTitle>
+              </CardHeader>
+            </Card>
+          )}
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Pendentes</CardDescription>
@@ -678,8 +717,8 @@ export default function TeamSettingsPage() {
                         {memberRole === 'agent' ? <UserRound className="w-3 h-3 mr-1" /> : <Shield className="w-3 h-3 mr-1" />}
                         {memberRoleLabels[memberRole]}
                       </Badge>
-                      <Badge variant={member.status === 'active' ? 'outline' : 'secondary'}>
-                        {member.status === 'active' ? 'Ativo' : 'Pendente'}
+                      <Badge variant={member.status === 'active' ? 'outline' : member.status === 'inactive' ? 'destructive' : 'secondary'}>
+                        {member.status === 'active' ? 'Ativo' : member.status === 'inactive' ? 'Sem acesso' : 'Pendente'}
                       </Badge>
                     </div>
                     <div className="text-sm text-muted-foreground flex items-center gap-2">
@@ -696,6 +735,11 @@ export default function TeamSettingsPage() {
                         Este membro não pode ser removido ou rebaixado porque é o último owner/admin do workspace.
                       </p>
                     )}
+                    {member.status === 'inactive' && !isSelf && (
+                      <p className="text-xs text-destructive">
+                        Acesso bloqueado — este membro não consegue usar o workspace. Clique em "Restaurar acesso" para corrigir.
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex flex-col gap-3 md:items-end">
@@ -708,7 +752,7 @@ export default function TeamSettingsPage() {
                       <Button
                         variant="outline"
                         onClick={() => openEditNameDialog(member)}
-                        disabled={!member.user_id || member.status !== 'active'}
+                        disabled={!member.user_id || (member.status !== 'active' && member.status !== 'inactive')}
                       >
                         <Pencil className="w-4 h-4 mr-2" />
                         Nome
@@ -751,11 +795,23 @@ export default function TeamSettingsPage() {
                       <Button
                         variant="outline"
                         onClick={() => openPasswordDialog(member)}
-                        disabled={!member.user_id || member.status !== 'active'}
+                        disabled={!member.user_id || (member.status !== 'active' && member.status !== 'inactive')}
                       >
                         <KeyRound className="w-4 h-4 mr-2" />
                         Senha
                       </Button>
+
+                      {member.status === 'inactive' && !isSelf && (
+                        <Button
+                          variant="outline"
+                          className="border-destructive text-destructive hover:bg-destructive/10"
+                          onClick={() => handleRestoreAccess(member)}
+                          disabled={restoringAccessMemberId === member.user_id}
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          {restoringAccessMemberId === member.user_id ? 'Restaurando...' : 'Restaurar acesso'}
+                        </Button>
+                      )}
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
