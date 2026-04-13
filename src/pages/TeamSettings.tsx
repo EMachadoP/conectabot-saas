@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { Users, Shield, UserRound, Mail, RefreshCw, UserPlus, Trash2, KeyRound, Pencil } from 'lucide-react';
+import { Users, Shield, UserRound, Mail, RefreshCw, UserPlus, Trash2, KeyRound, Pencil, MoreHorizontal } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -776,34 +777,14 @@ export default function TeamSettingsPage() {
                       {member.created_at ? new Date(member.created_at).toLocaleDateString('pt-BR') : '--'}
                     </div>
 
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <Button
-                        variant="outline"
-                        onClick={() => openEditNameDialog(member)}
-                        disabled={!member.user_id || (member.status !== 'active' && member.status !== 'inactive')}
-                      >
-                        <Pencil className="w-4 h-4 mr-2" />
-                        Nome
-                      </Button>
-
-                      <Button
-                        variant="outline"
-                        onClick={() => handleResendAccessEmail(member)}
-                        disabled={!member.profile?.email || resendingAccessMemberId === (member.user_id ?? member.id ?? member.profile?.email)}
-                      >
-                        <Mail className="w-4 h-4 mr-2" />
-                        {resendingAccessMemberId === (member.user_id ?? member.id ?? member.profile?.email)
-                          ? 'Reenviando...'
-                          : 'Reenviar email'}
-                      </Button>
-
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
                       {memberRole !== 'owner' && (
                         <Select
                           value={memberRole}
                           onValueChange={(value: 'admin' | 'agent') => handleRoleChange(member, value)}
                           disabled={disableRoleEdit}
                         >
-                          <SelectTrigger className="w-[180px]">
+                          <SelectTrigger className="w-[160px]">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -814,48 +795,72 @@ export default function TeamSettingsPage() {
                       )}
 
                       {memberRole === 'owner' && (
-                        <Button variant="outline" disabled className="w-[180px] justify-start">
+                        <Button variant="outline" size="sm" disabled className="w-[160px] justify-start">
                           <Shield className="w-4 h-4 mr-2" />
                           Owner protegido
                         </Button>
                       )}
 
-                      <Button
-                        variant="outline"
-                        onClick={() => openPasswordDialog(member)}
-                        disabled={!member.user_id || (member.status !== 'active' && member.status !== 'inactive')}
-                      >
-                        <KeyRound className="w-4 h-4 mr-2" />
-                        Senha
-                      </Button>
-
-                      {!isSelf && member.user_id && member.status !== 'pending' && (
-                        <Button
-                          variant="outline"
-                          onClick={() => handleSyncClaims(member)}
-                          disabled={syncingClaimsMemberId === member.user_id}
-                          title="Força resincronização das permissões JWT deste membro"
-                        >
-                          <RefreshCw className={`w-4 h-4 mr-2 ${syncingClaimsMemberId === member.user_id ? 'animate-spin' : ''}`} />
-                          {syncingClaimsMemberId === member.user_id ? 'Sincronizando...' : 'Sincronizar acesso'}
-                        </Button>
-                      )}
-
-                      {member.status === 'inactive' && !isSelf && (
-                        <Button
-                          variant="outline"
-                          className="border-destructive text-destructive hover:bg-destructive/10"
-                          onClick={() => handleRestoreAccess(member)}
-                          disabled={restoringAccessMemberId === member.user_id}
-                        >
-                          <RefreshCw className="w-4 h-4 mr-2" />
-                          {restoringAccessMemberId === member.user_id ? 'Restaurando...' : 'Restaurar acesso'}
-                        </Button>
+                      {!isSelf && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="icon">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52">
+                            <DropdownMenuItem
+                              onSelect={() => openEditNameDialog(member)}
+                              disabled={!member.user_id || (member.status !== 'active' && member.status !== 'inactive')}
+                            >
+                              <Pencil className="w-4 h-4 mr-2" />
+                              Editar nome
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => handleResendAccessEmail(member)}
+                              disabled={!member.profile?.email || resendingAccessMemberId === (member.user_id ?? member.id ?? member.profile?.email)}
+                            >
+                              <Mail className="w-4 h-4 mr-2" />
+                              {resendingAccessMemberId === (member.user_id ?? member.id ?? member.profile?.email)
+                                ? 'Reenviando...'
+                                : 'Reenviar email'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => openPasswordDialog(member)}
+                              disabled={!member.user_id || (member.status !== 'active' && member.status !== 'inactive')}
+                            >
+                              <KeyRound className="w-4 h-4 mr-2" />
+                              Alterar senha
+                            </DropdownMenuItem>
+                            {member.user_id && member.status !== 'pending' && (
+                              <DropdownMenuItem
+                                onSelect={() => handleSyncClaims(member)}
+                                disabled={syncingClaimsMemberId === member.user_id}
+                              >
+                                <RefreshCw className={`w-4 h-4 mr-2 ${syncingClaimsMemberId === member.user_id ? 'animate-spin' : ''}`} />
+                                {syncingClaimsMemberId === member.user_id ? 'Sincronizando...' : 'Sincronizar acesso'}
+                              </DropdownMenuItem>
+                            )}
+                            {member.status === 'inactive' && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onSelect={() => handleRestoreAccess(member)}
+                                  disabled={restoringAccessMemberId === member.user_id}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  <RefreshCw className="w-4 h-4 mr-2" />
+                                  {restoringAccessMemberId === member.user_id ? 'Restaurando...' : 'Restaurar acesso'}
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="outline" disabled={disableRemove}>
+                          <Button variant="outline" size="sm" disabled={disableRemove}>
                             <Trash2 className="w-4 h-4 mr-2" />
                             Remover
                           </Button>
