@@ -105,7 +105,40 @@ serve(async (req) => {
             }
         }
 
-        // 3. Process MESSAGES_UPSERT
+        // 3a. Process MESSAGES_UPDATE (confirmação de entrega e leitura)
+        if (eventType === 'messages.update') {
+            const updates = Array.isArray(payload.data) ? payload.data : [payload.data];
+            for (const update of updates) {
+                const providerMsgId = update?.key?.id;
+                const status = update?.update?.status;
+                if (!providerMsgId || !status) continue;
+
+                const updateFields: Record<string, string> = {};
+                if (status === 'DELIVERY_ACK' || status === 'SERVER_ACK') {
+                    updateFields.delivered_at = now;
+                } else if (status === 'READ' || status === 'PLAYED') {
+                    updateFields.delivered_at = now;
+                    updateFields.read_at = now;
+                }
+
+                if (Object.keys(updateFields).length > 0) {
+                    const { error: updateError } = await supabase
+                        .from('messages')
+                        .update(updateFields)
+                        .eq('provider_message_id', providerMsgId)
+                        .eq('workspace_id', workspaceId);
+
+                    if (updateError) {
+                        console.error(`[EVO-WEBHOOK] Erro ao atualizar status da mensagem ${providerMsgId}:`, updateError);
+                    } else {
+                        console.log(`[EVO-WEBHOOK] Mensagem ${providerMsgId} atualizada: status=${status}`);
+                    }
+                }
+            }
+            return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        // 3b. Process MESSAGES_UPSERT
         if (eventType === 'messages.upsert') {
             const data = payload.data;
             if (!data?.message) {

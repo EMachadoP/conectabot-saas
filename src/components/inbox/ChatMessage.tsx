@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { Check, CheckCheck, FileText, Camera, Video, Mic, File } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AudioPlayer } from './AudioPlayer';
 import { MessageFeedback } from './MessageFeedback';
 import { MessageActionsMenu } from './MessageActionsMenu';
@@ -141,10 +143,42 @@ export function ChatMessage({
     }
   };
 
+  const formatStatusTime = (dateStr: string) =>
+    format(new Date(dateStr), "dd/MM 'às' HH:mm", { locale: ptBR });
+
   const renderStatus = () => {
     if (!isOutgoing) return null;
-    if (readAt) return <CheckCheck className="w-4 h-4 text-info" />;
-    if (deliveredAt) return <CheckCheck className="w-4 h-4" />;
+
+    if (readAt) {
+      return (
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CheckCheck className="w-4 h-4 text-info cursor-default" />
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p className="text-xs">Lido {formatStatusTime(readAt)}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    if (deliveredAt) {
+      return (
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CheckCheck className="w-4 h-4 cursor-default" />
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p className="text-xs">Entregue {formatStatusTime(deliveredAt)}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
     return <Check className="w-4 h-4" />;
   };
 

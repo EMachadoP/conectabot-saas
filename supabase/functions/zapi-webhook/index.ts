@@ -134,12 +134,42 @@ serve(async (req) => {
       }).catch(err => console.error('[Forward Error]', err));
     }
 
-    // 3. Ignorar apenas se for uma atualização de status pura (sem mensagem)
-    // Mensagens recebidas podem vir com status: "RECEIVED", então checamos se não tem conteúdo
-    const isStatusUpdate = Boolean(payload.ack || payload.type === 'chatState' || (payload.status && !payload.text && !payload.message && !payload.image && !payload.video && !payload.audio && !payload.document));
+    // 3. Processar atualização de status (confirmação de leitura e entrega)
+    // Z-API envia ack=2 para entregue e ack=3 para lido
+    const isChatState = payload.type === 'chatState';
+    const hasAck = payload.ack !== undefined && payload.ack !== null;
+    const isStatusUpdate = Boolean(hasAck || isChatState || (payload.status && !payload.text && !payload.message && !payload.image && !payload.video && !payload.audio && !payload.document));
 
-    if (isStatusUpdate) {
+    if (isChatState) {
       return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+    }
+
+    if (hasAck) {
+      // ack=2 → entregue ao dispositivo, ack=3 → lido pelo contato
+      const ackValue = typeof payload.ack === 'string' ? parseInt(payload.ack, 10) : payload.ack;
+      const providerMsgId = payload.messageId || payload.zaapId || payload.id;
+
+      if ((ackValue === 2 || ackValue === 3) && providerMsgId) {
+        const updateFields: Record<string, string> = {};
+        if (ackValue >= 2) updateFields.delivered_at = now;
+        if (ackValue >= 3) updateFields.read_at = now;
+
+        const { error: ackError } = await supabase
+          .from('messages')
+          .update(updateFields)
+          .eq('provider_message_id', providerMsgId)
+          .eq('workspace_id', workspaceId);
+
+        if (ackError) {
+          console.error('[Webhook] Erro ao atualizar status da mensagem:', ackError);
+        } else {
+          console.log(`[Webhook] Mensagem ${providerMsgId} atualizada: ack=${ackValue}`);
+        }
+      }
+
+      if (isStatusUpdate) {
+        return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+      }
     }
 
     // --- IDENTIFICAÇÃO LID-FIRST ---
