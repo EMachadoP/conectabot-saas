@@ -4,6 +4,7 @@ import { Save, Loader2, Share2, Info, Activity, RefreshCw, Copy, CheckCircle2 } 
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useTenant } from '@/contexts/TenantContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import { ptBR } from 'date-fns/locale';
 interface ZAPISettings {
   id: string;
   team_id: string | null;
+  tenant_id: string | null;
   zapi_instance_id: string | null;
   zapi_token: string | null;
   zapi_security_token: string | null;
@@ -29,6 +31,7 @@ interface ZAPISettings {
 export default function AdminZAPIPage() {
   const { user, loading: authLoading } = useAuth();
   const { isAdmin, loading: roleLoading } = useUserRole();
+  const { activeTenant } = useTenant();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -36,21 +39,31 @@ export default function AdminZAPIPage() {
   const [lastSignal, setLastSignal] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<'webhook' | null>(null);
   
-  const [settings, setSettings] = useState<ZAPISettings>({
+  const emptySettings: ZAPISettings = {
     id: '',
     team_id: null,
+    tenant_id: null,
     zapi_instance_id: '',
     zapi_token: '',
     zapi_security_token: '',
     open_tickets_group_id: '',
     enable_group_notifications: false,
     forward_webhook_url: '',
-  });
+  };
+
+  const [settings, setSettings] = useState<ZAPISettings>(emptySettings);
 
   const fetchSettings = async () => {
+    if (!activeTenant?.id) return;
     setLoading(true);
+    setSettings(emptySettings);
+    setLastSignal(null);
     try {
-      const { data, error } = await supabase.from('zapi_settings').select('*').is('team_id', null).maybeSingle();
+      const { data, error } = await supabase
+        .from('zapi_settings')
+        .select('*')
+        .eq('tenant_id', activeTenant.id)
+        .maybeSingle();
       if (error) throw error;
       if (data) {
         setSettings(data);
@@ -65,13 +78,14 @@ export default function AdminZAPIPage() {
   };
 
   const fetchSignalOnly = async () => {
+    if (!activeTenant?.id) return;
     try {
       const { data } = await supabase
         .from('zapi_settings')
         .select('last_webhook_received_at')
-        .is('team_id', null)
+        .eq('tenant_id', activeTenant.id)
         .maybeSingle();
-      
+
       if (data) {
         setLastSignal(data.last_webhook_received_at);
       }
@@ -81,12 +95,12 @@ export default function AdminZAPIPage() {
   };
 
   useEffect(() => {
-    if (user && isAdmin) {
+    if (user && isAdmin && activeTenant?.id) {
       fetchSettings();
       const interval = setInterval(fetchSignalOnly, 10000);
       return () => clearInterval(interval);
     }
-  }, [user, isAdmin]);
+  }, [user, isAdmin, activeTenant?.id]);
 
   const webhookUrl = `${(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/+$/, '')}/functions/v1/zapi-webhook`;
 
@@ -109,7 +123,8 @@ export default function AdminZAPIPage() {
         zapi_token: settings.zapi_token || null,
         zapi_security_token: settings.zapi_security_token || null,
         forward_webhook_url: settings.forward_webhook_url || null,
-        team_id: null
+        team_id: null,
+        tenant_id: activeTenant?.id ?? null,
       };
 
       if (settings.id) {
