@@ -19,6 +19,7 @@ interface ZAPISettings {
   id: string;
   team_id: string | null;
   tenant_id: string | null;
+  workspace_id: string | null;
   zapi_instance_id: string | null;
   zapi_token: string | null;
   zapi_security_token: string | null;
@@ -43,6 +44,7 @@ export default function AdminZAPIPage() {
     id: '',
     team_id: null,
     tenant_id: null,
+    workspace_id: null,
     zapi_instance_id: '',
     zapi_token: '',
     zapi_security_token: '',
@@ -125,10 +127,16 @@ export default function AdminZAPIPage() {
         forward_webhook_url: settings.forward_webhook_url || null,
         team_id: null,
         tenant_id: activeTenant?.id ?? null,
+        workspace_id: activeTenant?.id ?? null,
       };
 
       if (settings.id) {
-        const { error } = await supabase.from('zapi_settings').update(payload).eq('id', settings.id);
+        const { error } = await supabase
+          .from('zapi_settings')
+          .update(payload)
+          .eq('id', settings.id)
+          .eq('tenant_id', activeTenant?.id)
+          .eq('workspace_id', activeTenant?.id);
         if (error) throw error;
       } else {
         const { data, error } = await supabase.from('zapi_settings').insert(payload).select().single();
