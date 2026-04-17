@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useTenant } from '@/contexts/TenantContext';
 
 export interface Conversation {
   id: string;
@@ -33,6 +34,7 @@ interface UseRealtimeInboxProps {
 }
 
 export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInboxProps = {}) {
+  const { activeTenant } = useTenant();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const processedMessageIds = useRef<Set<string>>(new Set());
@@ -70,6 +72,7 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
   }, []);
 
   const fetchConversations = useCallback(async () => {
+    if (!activeTenant?.id) return;
     if (fetchInFlightRef.current) return;
     const now = Date.now();
     if (now - lastFetchTime.current < 300) return;
@@ -81,6 +84,7 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
       const { data, error } = await supabase
         .from('conversations')
         .select(`*, contacts (*)`)
+        .eq('workspace_id', activeTenant.id)
         .order('last_message_at', { ascending: false });
 
       if (!error && data) {
@@ -125,9 +129,10 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
       fetchInFlightRef.current = false;
       setLoading(false);
     }
-  }, []);
+  }, [activeTenant?.id]);
 
   useEffect(() => {
+    setConversations([]);
     fetchConversations();
 
     const channel = supabase.channel('global-inbox-updates')
@@ -215,7 +220,7 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
       window.removeEventListener('focus', handleWindowFocus);
       supabase.removeChannel(channel);
     };
-  }, [fetchConversations, onNewInboundMessage, userId]);
+  }, [fetchConversations, onNewInboundMessage, userId, activeTenant?.id]);
 
   return {
     conversations,
