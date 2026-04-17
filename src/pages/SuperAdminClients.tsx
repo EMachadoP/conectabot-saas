@@ -721,17 +721,16 @@ export default function SuperAdminClientsPage() {
                           <div className="flex justify-end gap-2">
                             <Button
                               variant={isCurrentWorkspace ? 'secondary' : 'outline'}
-                              size="sm"
+                              size="icon"
                               onClick={() => handleAccessWorkspace(workspace)}
                               disabled={accessingWorkspaceId === workspace.workspace_id}
-                              title={canAccessWorkspace ? 'Entrar no contexto deste cliente' : 'Sua conta ainda não faz parte deste workspace'}
+                              title={isCurrentWorkspace ? 'Workspace ativo' : canAccessWorkspace ? 'Entrar no contexto deste cliente' : 'Sua conta ainda não faz parte deste workspace'}
                             >
                               {accessingWorkspaceId === workspace.workspace_id ? (
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <ArrowRightCircle className="w-4 h-4 mr-2" />
+                                <ArrowRightCircle className="w-4 h-4" />
                               )}
-                              {isCurrentWorkspace ? 'No contexto' : 'Acessar'}
                             </Button>
                             <Button
                               variant="outline"
