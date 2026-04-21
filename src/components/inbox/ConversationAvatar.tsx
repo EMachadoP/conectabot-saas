@@ -34,9 +34,9 @@ function getColorIndex(name: string): number {
 
 export function ConversationAvatar({ name, size = 'md', imageUrl }: ConversationAvatarProps) {
   const sizeClasses = {
-    sm: 'w-8 h-8 text-xs',
-    md: 'w-10 h-10 text-sm',
-    lg: 'w-12 h-12 text-base',
+    sm: 'size-8 text-xs',
+    md: 'size-10 text-sm',
+    lg: 'size-12 text-base',
   };
 
   if (imageUrl) {
@@ -45,7 +45,7 @@ export function ConversationAvatar({ name, size = 'md', imageUrl }: Conversation
         src={imageUrl}
         alt={name}
         className={cn(
-          'rounded-full object-cover',
+          'shrink-0 rounded-full object-cover',
           sizeClasses[size]
         )}
       />
@@ -58,6 +58,7 @@ export function ConversationAvatar({ name, size = 'md', imageUrl }: Conversation
     <div
       className={cn(
         'rounded-full flex items-center justify-center font-medium text-primary-foreground',
+        'shrink-0',
         sizeClasses[size],
         colorClass
       )}

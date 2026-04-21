@@ -1,25 +1,34 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Database } from '@/integrations/supabase/types';
+import { getRealtimePollingInterval } from '@/lib/realtimeTuning';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 type Message = Database['public']['Tables']['messages']['Row'];
+export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 export function useRealtimeMessages(conversationId: string | null) {
+  const isMobile = useIsMobile();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting');
   const channelRef = useRef<any>(null);
-  const fetchInFlightRef = useRef(false);
-  const lastFetchAtRef = useRef(0);
+  const activeConversationRef = useRef<string | null>(conversationId);
+  const latestRequestRef = useRef(0);
+  const fetchInFlightIdsRef = useRef<Set<string>>(new Set());
+  const lastFetchAtByConversationRef = useRef<Map<string, number>>(new Map());
 
   const fetchMessages = useCallback(async (id: string) => {
-    if (fetchInFlightRef.current) return;
+    if (fetchInFlightIdsRef.current.has(id)) return;
     const now = Date.now();
-    if (now - lastFetchAtRef.current < 1000) return;
+    const lastFetchAt = lastFetchAtByConversationRef.current.get(id) || 0;
+    if (now - lastFetchAt < 1000) return;
+    const requestId = ++latestRequestRef.current;
 
     // Immediate log to track request
     console.log(`[RealtimeMessages] Fetching messages for: ${id}`);
-    fetchInFlightRef.current = true;
-    lastFetchAtRef.current = now;
+    fetchInFlightIdsRef.current.add(id);
+    lastFetchAtByConversationRef.current.set(id, now);
     setLoading(true);
 
     try {
@@ -32,27 +41,32 @@ export function useRealtimeMessages(conversationId: string | null) {
 
       if (error) throw error;
 
-      // CRITICAL: Only update state if this ID is still the active one
-      // This handles the "race condition" where switching fast could mix data
       setMessages((prev) => {
-        // We check if the data we just got should actually be applied
-        // by verifying it via a closure or by checking the current conversation context
-        // in a more robust way if needed, but for now we trust the hook's scope.
+        if (requestId !== latestRequestRef.current || activeConversationRef.current !== id) {
+          return prev;
+        }
         if (data) return data.reverse();
         return prev;
       });
 
     } catch (err) {
       console.error('[RealtimeMessages] Error fetching:', err);
+      if (activeConversationRef.current === id) {
+        setConnectionStatus('error');
+      }
     } finally {
-      fetchInFlightRef.current = false;
-      setLoading(false);
+      fetchInFlightIdsRef.current.delete(id);
+      if (requestId === latestRequestRef.current && activeConversationRef.current === id) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    activeConversationRef.current = conversationId;
     // ALWAYS clear messages immediately when conversation changes
     setMessages([]);
+    setConnectionStatus(conversationId ? 'connecting' : 'connected');
 
     if (!conversationId) {
       setLoading(false);
@@ -99,19 +113,31 @@ export function useRealtimeMessages(conversationId: string | null) {
         }
       )
       .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setConnectionStatus('connected');
+        }
         if (status === 'CHANNEL_ERROR') {
           console.error('[RealtimeMessages] Subscription error, retrying...');
-          setTimeout(() => fetchMessages(conversationId), 2000);
+          setConnectionStatus('reconnecting');
+          setTimeout(() => {
+            if (activeConversationRef.current === conversationId) {
+              void fetchMessages(conversationId);
+            }
+          }, 2000);
+        }
+        if (status === 'TIMED_OUT') {
+          setConnectionStatus('reconnecting');
         }
       });
 
     channelRef.current = channel;
 
     const getPollingInterval = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return 15000;
-      }
-      return 4000;
+      return getRealtimePollingInterval({
+        channel: 'messages',
+        isMobile,
+        visibilityState: typeof document !== 'undefined' ? document.visibilityState : 'visible',
+      });
     };
 
     let intervalId: number | null = null;
@@ -149,7 +175,7 @@ export function useRealtimeMessages(conversationId: string | null) {
         supabase.removeChannel(channelRef.current);
       }
     };
-  }, [conversationId, fetchMessages]);
+  }, [conversationId, fetchMessages, isMobile]);
 
-  return { messages, loading, setMessages };
+  return { messages, loading, connectionStatus, setMessages };
 }

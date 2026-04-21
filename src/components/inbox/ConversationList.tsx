@@ -93,7 +93,7 @@ export function ConversationList({
   }, [activeConversationId, filteredConversations, conversations, onClearSelection, userId]);
 
   return (
-    <div className={`w-full border-r border-border flex flex-col bg-card h-full overflow-hidden`}>
+    <div className="w-full md:border-r border-border flex flex-col bg-card h-full overflow-hidden min-w-0">
       <div className="shrink-0 p-3 border-b border-border">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -101,16 +101,16 @@ export function ConversationList({
             placeholder="Buscar conversas..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="pl-9 text-sm md:text-base"
           />
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)} className="shrink-0 border-b border-border">
         <TabsList className="w-full h-auto p-0 bg-transparent grid grid-cols-3">
-          <TabsTrigger value="mine" className="text-xs px-2 py-3 h-auto">Minhas ({countByTab.mine})</TabsTrigger>
-          <TabsTrigger value="inbox" className="text-xs px-2 py-3 h-auto">Entrada ({countByTab.inbox})</TabsTrigger>
-          <TabsTrigger value="resolved" className="text-xs px-2 py-3 h-auto">Resolvidos ({countByTab.resolved})</TabsTrigger>
+          <TabsTrigger value="mine" className="text-xs px-1.5 md:px-2 py-3 h-auto min-w-0 truncate">Minhas ({countByTab.mine})</TabsTrigger>
+          <TabsTrigger value="inbox" className="text-xs px-1.5 md:px-2 py-3 h-auto min-w-0 truncate">Entrada ({countByTab.inbox})</TabsTrigger>
+          <TabsTrigger value="resolved" className="text-xs px-1.5 md:px-2 py-3 h-auto min-w-0 truncate">Resolvidos ({countByTab.resolved})</TabsTrigger>
         </TabsList>
       </Tabs>
 

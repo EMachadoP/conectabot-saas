@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { ConversationAvatar } from './ConversationAvatar';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { AudioSettingsMenu } from './AudioSettingsMenu';
+import { cn } from '@/lib/utils';
+
+type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 interface ChatHeaderProps {
   conversationId: string;
@@ -20,6 +23,7 @@ interface ChatHeaderProps {
   labels: any[];
   assignedTo?: string | null;
   isContactBlocked?: boolean;
+  connectionStatus?: ConnectionStatus;
   onResolveConversation?: () => void;
   onReopenConversation?: () => void;
   onMarkUnread?: () => void;
@@ -48,6 +52,7 @@ export function ChatHeader({
   labels,
   assignedTo,
   isContactBlocked = false,
+  connectionStatus = 'connected',
   onResolveConversation,
   onReopenConversation,
   onMarkUnread,
@@ -62,59 +67,77 @@ export function ChatHeader({
   onToggleBlockContact,
   onBack,
 }: ChatHeaderProps) {
+  const showConnectionStatus = connectionStatus === 'reconnecting' || connectionStatus === 'error';
+  const connectionLabel = connectionStatus === 'error' ? 'Sem conexão' : 'Reconectando';
+
   return (
-    <div className="h-14 shrink-0 border-b border-border flex items-center justify-between px-4">
-      <div className="flex items-center gap-3">
+    <div className="h-14 md:h-14 shrink-0 border-b border-border flex items-center justify-between gap-2 px-3 md:px-4 min-w-0">
+      <div className="flex items-center gap-3 min-w-0">
         {isMobile && onBack && (
-          <Button variant="ghost" size="icon" className="-ml-2 h-8 w-8" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="-ml-3 shrink-0" onClick={onBack} aria-label="Voltar">
+            <ArrowLeft />
           </Button>
         )}
         {contact.is_group ? (
-          <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-            <Users className="w-5 h-5 text-primary" />
+          <div className="size-10 shrink-0 rounded-full bg-primary/20 flex items-center justify-center">
+            <Users className="text-primary" />
           </div>
         ) : (
           <ConversationAvatar name={contact.name} imageUrl={contact.profile_picture_url} />
         )}
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="font-medium">{contact.name}</p>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="font-medium truncate text-sm md:text-base">{contact.name}</p>
             {contact.is_group && (
-              <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">Grupo</span>
+              <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded shrink-0">Grupo</span>
             )}
             {isContactBlocked && (
-              <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded">Bloqueado</span>
+              <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded shrink-0">Bloqueado</span>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground truncate">
             {contact.phone || contact.lid || 'Sem identificação'}
           </p>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 md:gap-2 shrink-0">
+        {showConnectionStatus && (
+          <span
+            title={connectionLabel}
+            className={cn(
+              'inline-flex items-center gap-1 text-xs font-medium',
+              connectionStatus === 'error' ? 'text-destructive' : 'text-muted-foreground',
+            )}
+          >
+            <span className="size-2 rounded-full bg-current" aria-hidden="true" />
+            <span className="sr-only sm:not-sr-only">{connectionLabel}</span>
+          </span>
+        )}
+
         {onGenerateProtocol && (
           <Button
-            size="sm"
+            size={isMobile ? 'icon' : 'sm'}
             variant="outline"
             onClick={onGenerateProtocol}
-            className="h-8"
+            aria-label="Gerar protocolo"
+            title="Gerar protocolo"
           >
-            <FileText className="w-4 h-4 mr-2" />
-            Gerar Protocolo
+            <FileText data-icon={isMobile ? undefined : 'inline-start'} />
+            <span className="hidden md:inline">Gerar Protocolo</span>
           </Button>
         )}
 
         {onCreateTask && (
           <Button
-            size="sm"
+            size={isMobile ? 'icon' : 'sm'}
             variant="outline"
             onClick={onCreateTask}
-            className="h-8"
+            aria-label="Criar tarefa"
+            title="Criar tarefa"
           >
-            <FileText className="w-4 h-4 mr-2" />
-            Criar tarefa
+            <FileText data-icon={isMobile ? undefined : 'inline-start'} />
+            <span className="hidden md:inline">Criar tarefa</span>
           </Button>
         )}
 

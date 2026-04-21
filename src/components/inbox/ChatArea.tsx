@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
 import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
 import { ChatInputArea } from './ChatInputArea';
@@ -53,6 +53,7 @@ interface ChatAreaProps {
   onAudioSettingsChange?: () => void;
   onToggleBlockContact?: () => void;
   loading?: boolean;
+  connectionStatus?: 'connecting' | 'connected' | 'reconnecting' | 'error';
   isMobile?: boolean;
   onBack?: () => void;
 }
@@ -63,6 +64,7 @@ export function ChatArea(props: ChatAreaProps) {
   const [protocolModalOpen, setProtocolModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [participantHeaderRefreshKey, setParticipantHeaderRefreshKey] = useState(0);
+  const swipeStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
 
   const { participant, contactInfo, displayNameType, refetch: refetchParticipant } =
     useParticipantInfo(contact?.id, conversationId ?? undefined);
@@ -85,9 +87,43 @@ export function ChatArea(props: ChatAreaProps) {
   const latestInboundMessage = [...messages]
     .reverse()
     .find((message) => message.sender_type !== 'agent' && message.message_type !== 'system');
+  const canSwipeBack = Boolean(isMobile && props.onBack);
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canSwipeBack || event.pointerType === 'mouse') return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest('button,a,input,textarea,[role="button"],[contenteditable="true"]')) return;
+
+    swipeStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = Math.abs(event.clientY - start.y);
+
+    if (deltaX > 90 && deltaY < 60) {
+      props.onBack?.();
+    }
+  };
 
   return (
-    <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
+    <div
+      className="flex-1 flex flex-col bg-background h-full overflow-hidden touch-pan-y"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={() => {
+        swipeStartRef.current = null;
+      }}
+    >
       <ChatHeader
         conversationId={conversationId || ''}
         contact={contact}
@@ -101,6 +137,7 @@ export function ChatArea(props: ChatAreaProps) {
         labels={props.labels || []}
         assignedTo={props.assignedTo}
         isContactBlocked={isContactBlocked}
+        connectionStatus={props.connectionStatus}
         onResolveConversation={props.onResolveConversation}
         onReopenConversation={props.onReopenConversation}
         onMarkUnread={props.onMarkUnread}

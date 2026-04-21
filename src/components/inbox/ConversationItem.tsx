@@ -21,7 +21,7 @@ interface ConversationItemProps {
 function getMessagePreview(message: string | null | undefined, type?: string): React.ReactNode {
   if (!message && !type) return 'Nenhuma mensagem';
   
-  const iconClass = "w-4 h-4 inline mr-1";
+  const iconClass = "size-4 inline mr-1";
   
   switch (type) {
     case 'image':
@@ -56,7 +56,7 @@ export function ConversationItem({
     <button
       onClick={onClick}
       className={cn(
-        'w-full p-3 flex items-start gap-3 text-left transition-colors hover:bg-muted/50',
+        'w-full min-h-16 p-3 flex items-start gap-3 text-left transition-colors hover:bg-muted/50 min-w-0',
         isActive && 'bg-muted'
       )}
     >
@@ -65,7 +65,7 @@ export function ConversationItem({
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
           <span className={cn(
-            "font-medium truncate",
+            "font-medium truncate text-sm md:text-base",
             unreadCount > 0 && "text-foreground"
           )}>
             {contactName}
@@ -77,14 +77,14 @@ export function ConversationItem({
         
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <span className={cn(
-            "text-sm truncate",
+            "text-sm truncate min-w-0",
             (unreadCount > 0 || markedUnread) ? "text-foreground font-medium" : "text-muted-foreground"
           )}>
             {getMessagePreview(lastMessage, lastMessageType)}
           </span>
 
           {(unreadCount > 0 || markedUnread) && (
-            <Badge className="bg-primary text-primary-foreground h-5 min-w-5 flex items-center justify-center px-1.5">
+            <Badge className="bg-primary text-primary-foreground h-5 min-w-5 flex shrink-0 items-center justify-center px-1.5">
               {unreadCount > 0 ? unreadCount : '●'}
             </Badge>
           )}

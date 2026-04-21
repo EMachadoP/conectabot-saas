@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTenant } from '@/contexts/TenantContext';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { getRealtimePollingInterval, rememberProcessedId } from '@/lib/realtimeTuning';
 
 export interface Conversation {
   id: string;
@@ -35,6 +37,7 @@ interface UseRealtimeInboxProps {
 
 export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInboxProps = {}) {
   const { activeTenant } = useTenant();
+  const isMobile = useIsMobile();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const processedMessageIds = useRef<Set<string>>(new Set());
@@ -170,23 +173,20 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
           const newMessage = payload.new;
           if (!newMessage || processedMessageIds.current.has(newMessage.id)) return;
 
-          processedMessageIds.current.add(newMessage.id);
+          processedMessageIds.current = rememberProcessedId(processedMessageIds.current, newMessage.id, 100);
           console.log('[RealtimeInbox] New message incoming:', newMessage.id);
 
           fetchConversations();
-
-          if (processedMessageIds.current.size > 100) {
-            processedMessageIds.current = new Set([...processedMessageIds.current].slice(-50));
-          }
         }
       )
       .subscribe();
 
     const getPollingInterval = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return 25000;
-      }
-      return 8000;
+      return getRealtimePollingInterval({
+        channel: 'inbox',
+        isMobile,
+        visibilityState: typeof document !== 'undefined' ? document.visibilityState : 'visible',
+      });
     };
 
     let intervalId: number | null = null;
@@ -220,7 +220,7 @@ export function useRealtimeInbox({ onNewInboundMessage, userId }: UseRealtimeInb
       window.removeEventListener('focus', handleWindowFocus);
       supabase.removeChannel(channel);
     };
-  }, [fetchConversations, onNewInboundMessage, userId, activeTenant?.id]);
+  }, [fetchConversations, onNewInboundMessage, userId, activeTenant?.id, isMobile]);
 
   return {
     conversations,

@@ -33,7 +33,7 @@ export default function InboxPage() {
     userId: user?.id,
   });
 
-  const { messages, loading: loadingMessages } = useRealtimeMessages(activeConversationId);
+  const { messages, loading: loadingMessages, connectionStatus } = useRealtimeMessages(activeConversationId);
 
   const shouldMarkConversationAsRead = useCallback((conversation: { assigned_to?: string | null } | null | undefined) => {
     return Boolean(user?.id && conversation);
@@ -438,6 +438,7 @@ export default function InboxPage() {
                   assignedTo={activeConvData?.assigned_to}
                   humanControl={activeConvData?.human_control}
                   loading={loadingMessages}
+                  connectionStatus={connectionStatus}
                   currentUserId={user.id}
                   isMobile={true}
                   onBack={() => {
@@ -500,6 +501,7 @@ export default function InboxPage() {
                       assignedTo={activeConvData?.assigned_to}
                       humanControl={activeConvData?.human_control}
                       loading={loadingMessages}
+                      connectionStatus={connectionStatus}
                       currentUserId={user.id}
                     />
                   )
