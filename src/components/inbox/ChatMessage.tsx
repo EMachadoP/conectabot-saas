@@ -111,11 +111,12 @@ export function ChatMessage({
         );
       case 'video':
         return <video src={mediaUrl} controls className="max-w-xs rounded-lg mb-2" />;
-      case 'audio':
+      case 'audio': {
+        const isRealTranscript = transcript && !transcript.startsWith('[');
         return (
           <div className="flex flex-col gap-2 mb-2">
             <AudioPlayer audioUrl={mediaUrl} />
-            {transcript && (
+            {isRealTranscript && (
               <div className={cn(
                 "text-xs p-2 rounded-md max-w-xs",
                 isOutgoing ? "bg-primary-foreground/10 text-primary-foreground/90" : "bg-muted text-muted-foreground"
@@ -126,6 +127,7 @@ export function ChatMessage({
             )}
           </div>
         );
+      }
       case 'document':
         return (
           <a
@@ -231,7 +233,7 @@ export function ChatMessage({
 
         {renderMedia()}
 
-        {localContent && (
+        {localContent && !(messageType === 'audio' && localContent.startsWith('[')) && (
           <p className="text-sm whitespace-pre-wrap break-words">{localContent}</p>
         )}
 

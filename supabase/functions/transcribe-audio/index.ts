@@ -182,8 +182,7 @@ serve(async (req) => {
 
       if (msgIdForLog) {
         await supabaseAdmin.from('messages').update({
-          transcript: '[Erro na transcrição]',
-          content: `[Áudio - ${error.message.substring(0, 50)}]`,
+          transcript: null,
           transcribed_at: new Date().toISOString(),
           transcript_provider: 'error'
         }).eq('id', msgIdForLog);
