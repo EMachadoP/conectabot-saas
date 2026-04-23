@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,56 +41,58 @@ export function ConversationList({
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<TabValue>('inbox');
 
-  const filteredConversations = conversations
-    .filter((conv) => {
-      if (!conv.contact) return false;
-      const contactName = conv.contact.name || '';
-      const lastMessage = conv.last_message || '';
-      const normalizedSearch = search.toLowerCase();
-      const matchesSearch =
-        contactName.toLowerCase().includes(normalizedSearch) ||
-        lastMessage.toLowerCase().includes(normalizedSearch);
+  const filteredConversations = useMemo(() => conversations.filter((conv) => {
+    if (!conv.contact) return false;
+    const contactName = conv.contact.name || '';
+    const lastMessage = conv.last_message || '';
+    const normalizedSearch = search.toLowerCase();
+    const matchesSearch =
+      contactName.toLowerCase().includes(normalizedSearch) ||
+      lastMessage.toLowerCase().includes(normalizedSearch);
 
-      if (!matchesSearch) return false;
+    if (!matchesSearch) return false;
 
-      switch (activeTab) {
-        case 'mine':
-          return conv.status === 'open' && conv.assigned_to === userId;
-        case 'inbox':
-          return conv.status === 'open' && conv.assigned_to !== userId;
-        case 'resolved':
-          return conv.status === 'resolved';
-        default:
-          return true;
-      }
-    });
+    switch (activeTab) {
+      case 'mine':
+        return conv.status === 'open' && conv.assigned_to === userId;
+      case 'inbox':
+        return conv.status === 'open' && conv.assigned_to !== userId;
+      case 'resolved':
+        return conv.status === 'resolved';
+      default:
+        return true;
+    }
+  }), [conversations, activeTab, search, userId]);
 
-  const countByTab = {
+  const countByTab = useMemo(() => ({
     mine: conversations.filter(c => c.status === 'open' && c.assigned_to === userId).length,
     inbox: conversations.filter(c => c.status === 'open' && c.assigned_to !== userId).length,
     resolved: conversations.filter(c => c.status === 'resolved').length,
-  };
+  }), [conversations, userId]);
 
+  // Sync active tab to match the active conversation's current status/assignment.
+  // Runs when conversations data changes so the tab switch happens in the same
+  // render batch as the status update — eliminating the "flash of empty list".
   useEffect(() => {
     if (!activeConversationId) return;
 
-    const activeStillVisible = filteredConversations.some((conversation) => conversation.id === activeConversationId);
-    if (!activeStillVisible) {
-      const activeConv = conversations.find((c) => c.id === activeConversationId);
-      if (activeConv) {
-        // Conversa mudou de aba (ex: reaberta) — troca a aba em vez de fechar
-        if (activeConv.status === 'resolved') {
-          setActiveTab('resolved');
-        } else if (activeConv.assigned_to === userId) {
-          setActiveTab('mine');
-        } else {
-          setActiveTab('inbox');
-        }
-      } else {
-        onClearSelection?.();
-      }
+    const activeConv = conversations.find((c) => c.id === activeConversationId);
+    if (!activeConv) {
+      onClearSelection?.();
+      return;
     }
-  }, [activeConversationId, filteredConversations, conversations, onClearSelection, userId]);
+
+    let targetTab: TabValue;
+    if (activeConv.status === 'resolved') {
+      targetTab = 'resolved';
+    } else if (activeConv.assigned_to === userId) {
+      targetTab = 'mine';
+    } else {
+      targetTab = 'inbox';
+    }
+
+    setActiveTab(targetTab);
+  }, [activeConversationId, conversations, userId, onClearSelection]);
 
   return (
     <div className="w-full md:border-r border-border flex flex-col bg-card h-full overflow-hidden min-w-0">
